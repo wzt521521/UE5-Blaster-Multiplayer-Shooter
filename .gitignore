@@ -1,0 +1,25 @@
+# Visual Studio
+.vs/
+
+# Build outputs
+Binaries/
+Build/
+
+# Derived data cache
+DerivedDataCache/
+
+# Intermediate build files
+Intermediate/
+
+# Saved (logs, config, staged builds, autosaves)
+Saved/
+
+# Content - large asset files (>1.5G), skip per request
+Content/
+
+# VS Code - only keep settings, exclude generated compile commands
+.vscode/compileCommands_*/
+
+# Common ignore
+*.log
+*.tmp
