@@ -5,7 +5,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/WidgetComponent.h"
-#include "Blaster/BlasterCharacter.h"
+#include "../Character/BlasterCharacter.h"
 #include "Net/UnrealNetwork.h"
 AWeapon::AWeapon()
 {

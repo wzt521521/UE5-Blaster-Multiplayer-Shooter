@@ -44,23 +44,31 @@ public:
 
 	UCombatComponent();
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
-	
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+
 	friend class ABlasterCharacter;
 
 	void EquipWeapon(AWeapon* WeaponToEquip);
+
 protected:
 	
 	virtual void BeginPlay() override;
+	void SetAiming(bool bIsAiming);
 
+	UFUNCTION(Server, Reliable)
+	void ServerSetAiming(bool bIsAiming);
+
+	UFUNCTION()
+	void OnRep_EquippedWeapon();
+	
 private:
 	ABlasterCharacter* Character;//指向拥有这个组件的角色的指针
+
+	UPROPERTY(ReplicatedUsing = OnRep_EquippedWeapon)
 	AWeapon* EquippedWeapon;//存储当前装备武器的变量
 
-
-
-
-	
-
-
+	UPROPERTY(Replicated)//会被复制
+	bool bAiming;
 		
 };
