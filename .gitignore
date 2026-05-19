@@ -1,25 +1,45 @@
-# Visual Studio
-.vs/
+# Unreal Engine 5 官方标准忽略文件
+# 来源：shturl.cc/efZWoM152cfrP9pBGSgg2hAFQ1UzlDaKmjfTZBuXoP6CSZVIvm0lxb62Vy
 
-# Build outputs
+# 编译产物
 Binaries/
-Build/
-
-# Derived data cache
-DerivedDataCache/
-
-# Intermediate build files
 Intermediate/
-
-# Saved (logs, config, staged builds, autosaves)
 Saved/
+Logs/
+DerivedDataCache/
+Build/
+*.pdb
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
 
-# Content - large asset files (>1.5G), skip per request
-Content/
+# 本地编辑器配置
+*.user
+*.suo
+*.shturl.cc/dc2
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# VS Code - only keep settings, exclude generated compile commands
-.vscode/compileCommands_*/
-
-# Common ignore
-*.log
+# UE 临时文件
 *.tmp
+*.bak
+*.log
+*.shturl.c
+
+# 打包产物
+Packaged/
+Shipping/
+Development/
+*.zip
+*.shturl
+
+# 插件编译产物
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+Plugins/*/Saved/
