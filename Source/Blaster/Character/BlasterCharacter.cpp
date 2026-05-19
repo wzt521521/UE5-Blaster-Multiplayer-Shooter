@@ -10,6 +10,8 @@
 #include "Net/UnrealNetwork.h"
 #include "../Weapon/Weapon.h"
 #include "../BlasterComponents/CombatComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "Kismet/KismetMathLibrary.h"
 ABlasterCharacter::ABlasterCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -34,7 +36,10 @@ ABlasterCharacter::ABlasterCharacter()
 
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 
-}
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
+	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
+	TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+}	
 
 
 void ABlasterCharacter::BeginPlay()
@@ -86,6 +91,7 @@ void ABlasterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &Ou
 void ABlasterCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	AimOffset(DeltaTime);
 }
 
 
@@ -159,6 +165,50 @@ void ABlasterCharacter::AimButtonReleased()
 	}
 }
 
+void ABlasterCharacter::AimOffset(float DeltaTime)//AimOffset 在每台机器上都跑
+//包括服务器和所有客户端。所以每台机器都在本地算自己的 AO_Pitch，都在本地做同样的修正，最终都修正到了正确的值。
+{
+	if(Combat && Combat->EquippedWeapon ==NULL)return;
+	FVector Velocity = GetVelocity();
+	Velocity.Z = 0;
+	//计算 Speed（水平速度）和 bIsInAir
+	float Speed = Velocity.Size();
+	bool bIsInAir = GetCharacterMovement()->IsFalling();
+
+
+	if(Speed == 0.f ||! bIsInAir)//不在空中
+	{
+		//CurrentAimRotation = 当前瞄准 Yaw
+		FRotator CurrentAimRotation = FRotator(0.f,GetBaseAimRotation().Yaw,0.f);
+		//DeltaAimRotation = CurrentAimRotation - StartAimRotation
+		FRotator DeltaAimRotation = UKismetMathLibrary::NormalizedDeltaRotator(CurrentAimRotation,StartAimRotation);
+		//AO_Yaw = DeltaAimRotation.Yaw          ← 瞄准方向偏离基准的角度
+		AO_Yaw = DeltaAimRotation.Yaw;
+		//if (不在转身中): InterpAO_Yaw = AO_Yaw ← 保存原始值
+		if(TurningInPlace==ETurningInPlace::ETIP_NotTurning){
+			InterpAO_Yaw = AO_Yaw;
+		}
+		bUseControllerRotationYaw = true;//角色旋转模式：控制器旋转，不使用角色旋转
+		TurnInPlace(DeltaTime);//判断是否触发转身
+	}
+	if(Speed>0.f||bIsInAir){
+		StartAimRotation = FRotator(0.f,GetBaseAimRotation().Yaw,0.f);
+		AO_Yaw=0.f;
+		bUseControllerRotationYaw = true;
+		TurningInPlace=ETurningInPlace::ETIP_NotTurning;
+	}
+	AO_Pitch=GetBaseAimRotation().Pitch;
+	//角色上下镜头移动的时候，ue会自动复制底层的pitch角度，然后再自动复制底层角度到其他的机器
+	//其他的机器再通过AO_Pitch=GetBaseAimRotation().Pitch;来赋值AO_Pitch，以期望更新角度
+	//但是GetBaseAimRotation().Pitch在其他机器的解码环节会出现问题，导致AO_Pitch的值不对
+	//fix 做的就是这件事：把 270°-360° 这种"无符号低头"映射回正确的 -90°-0°。
+	if(AO_Pitch>90.f&&!IsLocallyControlled()){
+		FVector2D InRange(270.f,360.f);
+		FVector2D OutRange(-90.f,0.f);
+		AO_Pitch=FMath::GetMappedRangeValueClamped(InRange,OutRange,AO_Pitch);
+	}
+}
+
 void ABlasterCharacter::OnRep_OverlappingWeapon(AWeapon* LastWeapon)//参数自动传入
 //当客户端收到服务器传来的新值时，客户端会执行这个函数
 {
@@ -179,6 +229,29 @@ void ABlasterCharacter::ServerEquipWeapon_Implementation(AWeapon *WeaponToEquip)
 	{
 		Combat->EquipWeapon(WeaponToEquip);
 	}
+}
+
+void ABlasterCharacter::TurnInPlace(float DeltaTime)
+{
+	if(AO_Yaw>90.f){
+		TurningInPlace=ETurningInPlace::ETIP_Right;
+	}
+	else if(AO_Yaw<-90.f){
+		TurningInPlace=ETurningInPlace::ETIP_Left;
+	}
+	else{
+		TurningInPlace=ETurningInPlace::ETIP_NotTurning;
+	}
+
+	if(TurningInPlace!=ETurningInPlace::ETIP_NotTurning){
+		InterpAO_Yaw=FMath::FInterpTo(InterpAO_Yaw,0.f,DeltaTime,4.f);
+		AO_Yaw=InterpAO_Yaw;
+		if(FMath::Abs(AO_Yaw)<15.f){
+			TurningInPlace=ETurningInPlace::ETIP_NotTurning;
+			StartAimRotation=FRotator(0.f,GetBaseAimRotation().Yaw,0.f);
+		}
+	}
+
 }
 
 void ABlasterCharacter::SetOverlappingWeapon(AWeapon *Weapon)

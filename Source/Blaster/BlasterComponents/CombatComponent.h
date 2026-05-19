@@ -70,5 +70,11 @@ private:
 
 	UPROPERTY(Replicated)//会被复制
 	bool bAiming;
+
+	UPROPERTY(EditAnywhere)
+	float BaseWalkSpeed;
+
+	UPROPERTY(EditAnywhere)
+	float AimWalkSpeed;
 		
 };

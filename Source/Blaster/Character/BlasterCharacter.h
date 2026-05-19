@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Blaster/BlasterTypes/TurningInPlace.h"
 #include "GameFramework/Character.h"
 #include "BlasterCharacter.generated.h"
 
@@ -33,6 +34,7 @@ protected:
 	void CrouchButtonPressed();
 	void AimButtonPressed();
 	void AimButtonReleased();
+	void AimOffset(float DeltaTime);
 
 private:
 	UPROPERTY(VisibleAnywhere, Category = "Camera")
@@ -68,10 +70,21 @@ private:
 
 	UFUNCTION(Server, Reliable)
 	void ServerEquipWeapon(AWeapon* WeaponToEquip);
+	float AO_Pitch;
+	float AO_Yaw;
+	float InterpAO_Yaw;
+	FRotator StartAimRotation;//开始瞄准时的旋转值
+
+	ETurningInPlace TurningInPlace;//翻转状态
+	void TurnInPlace(float DeltaTime);
+
 public:
 	void SetOverlappingWeapon(AWeapon* Weapon) ;
 
 	bool IsWeaponEquipped();
 	bool IsAiming();
+	FORCEINLINE float GetAO_Pitch() const { return AO_Pitch; }
+	FORCEINLINE float GetAO_Yaw() const { return AO_Yaw; }
+	FORCEINLINE ETurningInPlace GetTurningInPlace() const { return TurningInPlace; }
 	
 };

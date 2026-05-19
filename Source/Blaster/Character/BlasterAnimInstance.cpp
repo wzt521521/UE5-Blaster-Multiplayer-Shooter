@@ -34,6 +34,8 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaTime)//每帧调用
 
     bIsCrouched = BlasterCharacter->bIsCrouched;
     bAiming = BlasterCharacter->IsAiming();
+    TurningInPlace = BlasterCharacter->GetTurningInPlace();
+
 
     FRotator AimRotation = BlasterCharacter->GetBaseAimRotation();//定义了一个旋转值，记录"你面朝哪里"。
     //把角色当前的面朝方向（准星/摄像机方向）存到 AimRotation 里。这个旋转决定了动画蓝图中上半身的朝向，比如瞄准时身体扭转的角度。
@@ -54,4 +56,7 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaTime)//每帧调用
     const float Target = Delta.Yaw / DeltaTime;
     const float Interp = FMath::FInterpTo(Lean, Target, DeltaTime, 6.f);
     Lean = FMath::Clamp(Interp, -90.f, 90.f);
+
+    AO_Yaw=BlasterCharacter->GetAO_Yaw();
+    AO_Pitch=BlasterCharacter->GetAO_Pitch();
 }
