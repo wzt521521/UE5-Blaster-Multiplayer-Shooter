@@ -20,6 +20,8 @@ public:
 	//函数内部注册要复制的变量
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void PostInitializeComponents() override;//在这个函数中访问combat组件
+	void PlayFireMontage(bool bAiming);
+	void StopFireMontage();
 
 
 protected:
@@ -35,6 +37,9 @@ protected:
 	void AimButtonPressed();
 	void AimButtonReleased();
 	void AimOffset(float DeltaTime);
+	virtual void Jump() override;
+	void FireButtonPressed();
+	void FireButtonReleased();
 
 private:
 	UPROPERTY(VisibleAnywhere, Category = "Camera")
@@ -77,6 +82,9 @@ private:
 
 	ETurningInPlace TurningInPlace;//翻转状态
 	void TurnInPlace(float DeltaTime);
+
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	class UAnimMontage* FireWeaponMontage;
 
 public:
 	void SetOverlappingWeapon(AWeapon* Weapon) ;

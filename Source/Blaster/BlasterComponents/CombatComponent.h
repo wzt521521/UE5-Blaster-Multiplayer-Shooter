@@ -61,6 +61,14 @@ protected:
 
 	UFUNCTION()
 	void OnRep_EquippedWeapon();
+
+	void FireButtonPressed(bool bPressed);
+
+	UFUNCTION(Server, Reliable)
+	void ServerFire(bool bPressed);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastFire(bool bPressed);
 	
 private:
 	ABlasterCharacter* Character;//指向拥有这个组件的角色的指针
@@ -76,5 +84,7 @@ private:
 
 	UPROPERTY(EditAnywhere)
 	float AimWalkSpeed;
+
+	bool bFireButtonPressed;
 		
 };

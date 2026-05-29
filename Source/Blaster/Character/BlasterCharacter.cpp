@@ -12,6 +12,7 @@
 #include "../BlasterComponents/CombatComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "BlasterAnimInstance.h"
 ABlasterCharacter::ABlasterCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -38,7 +39,13 @@ ABlasterCharacter::ABlasterCharacter()
 
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
 	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
+	GetCharacterMovement()->RotationRate = FRotator(0.f, 0.f, 850.f);
 	TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+
+	NetUpdateFrequency = 66.f;
+	MinNetUpdateFrequency = 33.f;
+
+
 }	
 
 
@@ -56,7 +63,7 @@ void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-	PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
+	PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &ABlasterCharacter::Jump);
 
 	PlayerInputComponent->BindAxis("MoveForward", this, &ABlasterCharacter::MoveForward);
 	PlayerInputComponent->BindAxis("MoveRight", this, &ABlasterCharacter::MoveRight);
@@ -68,6 +75,8 @@ void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	PlayerInputComponent->BindAction("Crouch", IE_Pressed, this, &ABlasterCharacter::CrouchButtonPressed);
 	PlayerInputComponent->BindAction("Aim", IE_Pressed, this, &ABlasterCharacter::AimButtonPressed);
 	PlayerInputComponent->BindAction("Aim", IE_Released, this, &ABlasterCharacter::AimButtonReleased);
+	PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &ABlasterCharacter::FireButtonPressed);
+	PlayerInputComponent->BindAction("Fire", IE_Released, this, &ABlasterCharacter::FireButtonReleased);
 
 }
 
@@ -81,6 +90,29 @@ void ABlasterCharacter::PostInitializeComponents()
 	}
 }
 
+void ABlasterCharacter::PlayFireMontage(bool bAiming)
+{
+	if(Combat==NULL||Combat->EquippedWeapon==NULL)return;
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();//AnimInstance 是角色网格体的动画实例，负责播放动画蒙太奇
+	if(AnimInstance && FireWeaponMontage)
+	{
+		AnimInstance->Montage_Play(FireWeaponMontage);
+		FName SectionName = bAiming ? FName("RifleAim") : FName("RifleHip");
+		AnimInstance->Montage_JumpToSection(SectionName);
+	}
+
+}
+
+void ABlasterCharacter::StopFireMontage()
+{
+    UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+    if(AnimInstance && FireWeaponMontage)
+    {
+        AnimInstance->Montage_Stop(0.25f, FireWeaponMontage);
+    }
+}
+
+  
 void ABlasterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -209,6 +241,32 @@ void ABlasterCharacter::AimOffset(float DeltaTime)//AimOffset 在每台机器上
 	}
 }
 
+void ABlasterCharacter::Jump()
+{
+	if(bIsCrouched){
+		UnCrouch();
+	}
+	else{
+		Super::Jump();
+	}
+}
+
+void ABlasterCharacter::FireButtonPressed()
+{
+	if(Combat)
+	{
+		Combat->FireButtonPressed(true);//由combat组件处理开火逻辑，参数 true 表示按下开火键
+	}
+}
+
+void ABlasterCharacter::FireButtonReleased()
+{
+	if(Combat)
+	{
+		Combat->FireButtonPressed(false);
+	}
+}
+
 void ABlasterCharacter::OnRep_OverlappingWeapon(AWeapon* LastWeapon)//参数自动传入
 //当客户端收到服务器传来的新值时，客户端会执行这个函数
 {
@@ -243,6 +301,8 @@ void ABlasterCharacter::TurnInPlace(float DeltaTime)
 		TurningInPlace=ETurningInPlace::ETIP_NotTurning;
 	}
 
+	//转身的平滑收尾阶段。
+	//不直接跳变，而是让 AO_Yaw 从当前值插值逼近 0（速度 4.0），等转到 15° 以内就判定转身完成，重置基准方向。
 	if(TurningInPlace!=ETurningInPlace::ETIP_NotTurning){
 		InterpAO_Yaw=FMath::FInterpTo(InterpAO_Yaw,0.f,DeltaTime,4.f);
 		AO_Yaw=InterpAO_Yaw;

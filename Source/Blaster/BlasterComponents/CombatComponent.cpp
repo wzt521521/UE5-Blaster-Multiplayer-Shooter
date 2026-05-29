@@ -43,7 +43,6 @@ void UCombatComponent::EquipWeapon(AWeapon *WeaponToEquip)//此函数从始至�
 
 	Character->GetCharacterMovement()->bOrientRotationToMovement = false;
 	Character->bUseControllerRotationYaw = true;
-	
 }
 
 void UCombatComponent::SetAiming(bool bIsAiming)
@@ -65,6 +64,34 @@ void UCombatComponent::OnRep_EquippedWeapon()
 		Character->GetCharacterMovement()->bOrientRotationToMovement = false;
 		Character->bUseControllerRotationYaw = true;
 	}
+}
+
+void UCombatComponent::FireButtonPressed(bool bPressed)
+{
+	bFireButtonPressed = bPressed;
+	if(EquippedWeapon == NULL)return;
+	ServerFire(bPressed);
+}
+
+void UCombatComponent::MulticastFire_Implementation(bool bPressed)
+{
+	if(Character)
+	{
+		if(bPressed)
+		{
+			Character->PlayFireMontage(bAiming);
+			EquippedWeapon->Fire();
+		}
+		else
+		{
+			Character->StopFireMontage();
+		}
+	}
+}
+
+void UCombatComponent::ServerFire_Implementation(bool bPressed)
+{
+	MulticastFire(bPressed);
 }
 
 void UCombatComponent::ServerSetAiming_Implementation(bool bIsAiming)
