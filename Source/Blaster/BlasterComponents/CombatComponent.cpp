@@ -67,6 +67,7 @@ void UCombatComponent::FireButtonPressed(bool bPressed)
 	bFireButtonPressed = bPressed;
 	if (bFireButtonPressed)
 	{
+		
 		Fire();
 	}
 }
@@ -77,6 +78,14 @@ void UCombatComponent::Fire()
 	{
 		bCanFire = false;
 		if (EquippedWeapon == nullptr) return;
+
+		if (Character && Character->IsLocallyControlled())
+		{
+			FHitResult HitResult;
+			TraceUnderCrosshairs(HitResult);
+			HitTarget = HitResult.ImpactPoint;
+		}
+
 		LocalFire(HitTarget);
 		ServerFire(HitTarget, EquippedWeapon->FireDelay);
 		StartFireTimer();
@@ -211,12 +220,6 @@ void UCombatComponent::BeginPlay()
 void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-	if (Character && Character->IsLocallyControlled())
-	{
-		FHitResult HitResult;
-		TraceUnderCrosshairs(HitResult);
-		HitTarget = HitResult.ImpactPoint;
-	}
 }
 
 void UCombatComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &OutLifetimeProps) const

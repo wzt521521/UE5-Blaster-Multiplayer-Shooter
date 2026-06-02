@@ -7,6 +7,7 @@
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Particles/ParticleSystemComponent.h"
 #include "Particles/ParticleSystem.h"
+#include "Sound/SoundCue.h"
 
 AProjectile::AProjectile()
 {
@@ -23,7 +24,7 @@ AProjectile::AProjectile()
 
 	ProjectileMovementComponent = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("ProjectileMovementComponent"));
 	ProjectileMovementComponent->bRotationFollowsVelocity = true;
-	//ProjectileMovementComponent->SetupAttachment(RootComponent);
+	
 }
 
 
@@ -32,12 +33,21 @@ void AProjectile::BeginPlay()
 	Super::BeginPlay();
 	if(Tracer)
 	{
-		//生成一个粒子特效（Particle Effect）
+		//生成一个粒子特效，作为弹道轨迹
 		TracerComponent = UGameplayStatics::SpawnEmitterAttached(Tracer, CollisionBox, FName(),
 		 GetActorLocation(), GetActorRotation(), EAttachLocation::KeepWorldPosition);
 	}
+	if(HasAuthority())//只有服务器才绑定碰撞事件
+	{
+		CollisionBox->OnComponentHit.AddDynamic(this, &AProjectile::OnHit);
+	}
+
 }
 
+void AProjectile::OnHit(UPrimitiveComponent *HitComp, AActor *OtherActor, UPrimitiveComponent *OtherComp, FVector NormalImpulse, const FHitResult &Hit)
+{
+	Destroy();
+}
 
 void AProjectile::Tick(float DeltaTime)
 {
@@ -45,3 +55,15 @@ void AProjectile::Tick(float DeltaTime)
 
 }
 
+void AProjectile::Destroyed()
+{
+	Super::Destroyed();
+	if(ImpactParticles)
+	{
+		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), ImpactParticles, GetActorTransform());
+	}
+	if(ImpactSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, ImpactSound, GetActorLocation());
+	}
+}

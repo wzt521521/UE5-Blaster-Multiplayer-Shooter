@@ -15,10 +15,15 @@ public:
 
 	AProjectile();
 	virtual void Tick(float DeltaTime) override;
+	virtual void Destroyed() override;
 protected:
 
 	virtual void BeginPlay() override;
 
+	UFUNCTION()
+	virtual void OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, 
+		FVector NormalImpulse, const FHitResult& Hit);
+		//HitComp 是你自己的碰撞体，OtherActor/OtherComp 是被你撞到的目标，NormalImpulse 是碰撞冲击力，Hit 是所有细节的合集。
 private:
 	UPROPERTY(EditAnywhere)
 	class UBoxComponent* CollisionBox;
@@ -30,6 +35,12 @@ private:
 	class UParticleSystem* Tracer;
 
 	class UParticleSystemComponent* TracerComponent;
+	
+	UPROPERTY(EditAnywhere)
+	UParticleSystem* ImpactParticles;//子弹命中时播放的粒子特效
+
+	UPROPERTY(EditAnywhere)
+	class USoundCue* ImpactSound;//子弹命中时播放的音效
 public:	
 
 

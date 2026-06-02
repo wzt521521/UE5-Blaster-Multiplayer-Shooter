@@ -3,11 +3,13 @@
 
 #include "Weapon.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMeshSocket.h"
 #include "Components/SphereComponent.h"
 #include "Components/WidgetComponent.h"
 #include "../Character/BlasterCharacter.h"
 #include "Animation/AnimationAsset.h"
 #include "Net/UnrealNetwork.h"
+#include "Casing.h"
 
 AWeapon::AWeapon()
 {
@@ -117,11 +119,30 @@ void AWeapon::ShowPickupWidget(bool bShowWidget)
 	}
 }
 
-void AWeapon::Fire(const FVector& HitTarget)
+void AWeapon::Fire(const FVector& HitTarget)//此函数每个客户端独自调用
 {
 	if(FireAnimation)
 	{
 		//播放动画
 		WeaponMesh->PlayAnimation(FireAnimation, false);
+	}
+	if(CasingClass)
+	// 从武器骨骼网格体上找到 AmmoEject 插槽（抛壳口）
+	// 获取抛壳口的世界位置和旋转
+	// 在此位置生成一个 ACasing（弹壳）Actor
+	{
+		const USkeletalMeshSocket* AmmoEjectSocket = WeaponMesh->GetSocketByName("AmmoEject");
+		if(AmmoEjectSocket)
+		{
+			FTransform SocketTransform = AmmoEjectSocket->GetSocketTransform(WeaponMesh);
+			// FActorSpawnParameters SpawnParams;
+			// SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			UWorld* World = GetWorld();
+			if(World)
+			{
+				World->SpawnActor<ACasing>(CasingClass, SocketTransform.GetLocation(), SocketTransform.GetRotation().Rotator());
+				//SpawnActor的第四个参数是旋转，SocketTransform.GetRotation()返回
+			}
+		}
 	}
 }
