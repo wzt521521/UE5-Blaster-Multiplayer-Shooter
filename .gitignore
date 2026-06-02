@@ -1,5 +1,4 @@
 # Unreal Engine 5 官方标准忽略文件
-# 来源：shturl.cc/efZWoM152cfrP9pBGSgg2hAFQ1UzlDaKmjfTZBuXoP6CSZVIvm0lxb62Vy
 
 # 编译产物
 Binaries/
@@ -14,32 +13,32 @@ Build/
 *.dll
 *.so
 *.dylib
+*.target
 
 # 本地编辑器配置
 *.user
 *.suo
-*.shturl.cc/dc2
+*.sln.DotSettings.user
+*.sln.docstates
 .vs/
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+Thumbs.db
 
 # UE 临时文件
 *.tmp
 *.bak
 *.log
-*.shturl.c
 
 # 打包产物
 Packaged/
-Shipping/
-Development/
-*.zip
-*.shturl
 
-# 插件编译产物
-Plugins/*/Binaries/
-Plugins/*/Intermediate/
-Plugins/*/Saved/
+# 资源文件（不上传二进制资产）
+Content/
+Plugins/*/Content/
+
+# 本地布局
+Config/Layouts/
