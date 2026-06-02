@@ -21,7 +21,7 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void PostInitializeComponents() override;//在这个函数中访问combat组件
 	void PlayFireMontage(bool bAiming);
-	void StopFireMontage();
+
 
 
 protected:

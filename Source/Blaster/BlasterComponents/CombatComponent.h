@@ -63,12 +63,20 @@ protected:
 	void OnRep_EquippedWeapon();
 
 	void FireButtonPressed(bool bPressed);
+	void Fire();
+	void LocalFire(const FVector_NetQuantize& TraceHitTarget);
+	void StartFireTimer();
+	void FireTimerFinished();
+	bool CanFire();
+
 
 	UFUNCTION(Server, Reliable)
-	void ServerFire(bool bPressed);
+	void ServerFire(const FVector_NetQuantize& TraceHitTarget, float FireDelay);
 
 	UFUNCTION(NetMulticast, Reliable)
-	void MulticastFire(bool bPressed);
+	void MulticastFire(const FVector_NetQuantize& TraceHitTarget);
+
+	void TraceUnderCrosshairs(FHitResult& TraceHitResult);
 	
 private:
 	ABlasterCharacter* Character;//指向拥有这个组件的角色的指针
@@ -86,5 +94,9 @@ private:
 	float AimWalkSpeed;
 
 	bool bFireButtonPressed;
+
+	FVector HitTarget;
+	FTimerHandle FireTimer;
+	bool bCanFire = true;
 		
 };

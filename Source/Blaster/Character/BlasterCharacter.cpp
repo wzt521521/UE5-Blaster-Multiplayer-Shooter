@@ -103,14 +103,6 @@ void ABlasterCharacter::PlayFireMontage(bool bAiming)
 
 }
 
-void ABlasterCharacter::StopFireMontage()
-{
-    UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-    if(AnimInstance && FireWeaponMontage)
-    {
-        AnimInstance->Montage_Stop(0.25f, FireWeaponMontage);
-    }
-}
 
   
 void ABlasterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &OutLifetimeProps) const
