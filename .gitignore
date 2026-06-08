@@ -36,9 +36,7 @@ Thumbs.db
 # 打包产物
 Packaged/
 
-# 资源文件（不上传二进制资产）
-Content/
-Plugins/*/Content/
+# 资源文件 — 改为跟踪蓝图资产文件
 
 # 本地布局
 Config/Layouts/
