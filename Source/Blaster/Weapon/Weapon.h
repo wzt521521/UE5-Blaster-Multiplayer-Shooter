@@ -6,6 +6,7 @@
 #include "GameFramework/Actor.h"
 #include "Weapon.generated.h"
 
+class UTexture2D;
 UENUM(BlueprintType)
 enum class EWeaponState : uint8
 {
@@ -77,8 +78,31 @@ private:
 	UPROPERTY(EditAnywhere)
 	TSubclassOf<class ACasing> CasingClass;
 
+
 public:
+	// 准星五方向纹理，CombactComponent 每帧读取并打包传给 HUD 绘制
+	UPROPERTY(EditAnywhere,Category="Crosshairs")
+	UTexture2D* CrosshairsCenter;
+	UPROPERTY(EditAnywhere,Category="Crosshairs")
+	UTexture2D* CrosshairsLeft;
+	UPROPERTY(EditAnywhere,Category="Crosshairs")
+	UTexture2D* CrosshairsRight;
+	UPROPERTY(EditAnywhere,Category="Crosshairs")
+	UTexture2D* CrosshairsBottom;
+	UPROPERTY(EditAnywhere, Category = "Crosshairs")
+	UTexture2D* CrosshairsTop;
+
+	// 瞄准时的相机视野，CombatComponent::InterpFOV 读取作为开镜插值目标
+	UPROPERTY(EditAnywhere)
+	float ZoomedFOV = 30.f;
+
+	// 开镜速度，CombatComponent::InterpFOV 读取作为开镜插值速度
+	UPROPERTY(EditAnywhere)
+	float ZoomInterpSpeed = 20.f;
+
 	void SetWeaponState(EWeaponState State);
 	FORCEINLINE USphereComponent* GetAreaSphere() const {return AreaSphere;}
 	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() const {return WeaponMesh;}
+	FORCEINLINE float GetZoomedFOV() const { return ZoomedFOV; }
+	FORCEINLINE float GetZoomInterpSpeed() const { return ZoomInterpSpeed; }
 };

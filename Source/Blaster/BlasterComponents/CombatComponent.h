@@ -35,6 +35,9 @@
 
 class AWeapon;
 class ABlasterCharacter;
+class ABlasterPlayerController;
+class ABlasterHud;
+
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
 class BLASTER_API UCombatComponent : public UActorComponent
 {
@@ -77,9 +80,14 @@ protected:
 	void MulticastFire(const FVector_NetQuantize& TraceHitTarget);
 
 	void TraceUnderCrosshairs(FHitResult& TraceHitResult);
+
+	void SetHUDCrosshairs(float DeltaTime);
 	
 private:
 	ABlasterCharacter* Character;//指向拥有这个组件的角色的指针
+
+	ABlasterPlayerController* Controller;
+	ABlasterHud* HUD;
 
 	UPROPERTY(ReplicatedUsing = OnRep_EquippedWeapon)
 	AWeapon* EquippedWeapon;//存储当前装备武器的变量
@@ -98,5 +106,20 @@ private:
 	FVector HitTarget;
 	FTimerHandle FireTimer;
 	bool bCanFire = true;
-		
+
+	// 根据角色移动速度计算的散布因子（0=静止，1=全速奔跑）
+	float CrosshairVelocityFactor;
+	float CrosshairInAirFactor;
+	//不瞄准时的基准视野，BeginPlay 从相机读取，失镜插值恢复到此值
+	float DefaultFOV;
+
+	// 收镜速度，InterpFOV 从不瞄准状态恢复到 DefaultFOV 的插值速度
+	UPROPERTY(EditAnywhere)
+	float ZoomInterpSpeed = 20.f;
+
+	// 当前实际 FOV，每帧被 InterpFOV 平滑更新后写入相机
+	float CurrentFOV;
+
+	// 每帧根据 bAiming 状态平滑切换相机视野（开镜/收镜）
+	void InterpFOV(float DeltaTime);
 };

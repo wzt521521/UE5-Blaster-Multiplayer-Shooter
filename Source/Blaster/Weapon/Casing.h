@@ -16,14 +16,22 @@ public:
 	ACasing();
 	virtual void Tick(float DeltaTime) override;
 
-private:
-	UPROPERTY(VisibleAnywhere)
-	class UStaticMeshComponent* CasingMesh;
 protected:
 
 	virtual void BeginPlay() override;
 
+	UFUNCTION()
+	void OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, 
+		FVector NormalImpulse, const FHitResult& Hit);
 
+private:
+	UPROPERTY(VisibleAnywhere)
+	class UStaticMeshComponent* CasingMesh;
 
+	UPROPERTY(EditAnywhere)
+	float ShellEjectionImpulse;
+
+	UPROPERTY(EditAnywhere)
+	class USoundCue* ShellSound;//弹壳落地时播放的音效
 
 };

@@ -4,12 +4,15 @@
 #include "CombatComponent.h"
 #include "../Character/BlasterCharacter.h"
 #include "Blaster/Weapon/Weapon.h"
+#include "Camera/CameraComponent.h"
 #include "Engine/SkeletalMeshSocket.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
 #include "DrawDebugHelpers.h"
+#include "../HUD/BlasterHud.h"
+#include "../PlayerController/BlasterPlayerController.h"
 
 UCombatComponent::UCombatComponent()
 {
@@ -189,6 +192,83 @@ void UCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
 	}
 }
 
+// 每帧将当前武器的准星纹理打包传给 HUD，用于绘制十字准心
+void UCombatComponent::SetHUDCrosshairs(float DeltaTime)
+{
+	if(Character == nullptr) return;
+
+	// 惰性缓存：只在第一次调用时获取 PlayerController，后续复用，避免每帧 Cast
+	Controller = Controller == nullptr ? Cast<ABlasterPlayerController>(Character->GetController()) : Controller;
+
+	if(Controller)
+	{
+		// 从 Controller 拿到 HUD 并转为自定义类型
+		HUD = HUD == nullptr ? Cast<ABlasterHud>(Controller->GetHUD()) : HUD;
+		if(HUD)
+		{
+			// 构建准星数据包
+			FHUDPackage HUDPackage;
+			if(EquippedWeapon)
+			{
+				// 把武器上的五块准星纹理填入数据包，HUD 会根据武器散布动态偏移每块的位置
+				HUDPackage.CrosshairsCenter = EquippedWeapon->CrosshairsCenter;
+				HUDPackage.CrosshairsLeft = EquippedWeapon->CrosshairsLeft;
+				HUDPackage.CrosshairsRight = EquippedWeapon->CrosshairsRight;
+				HUDPackage.CrosshairsBottom = EquippedWeapon->CrosshairsBottom;
+				HUDPackage.CrosshairsTop = EquippedWeapon->CrosshairsTop;
+			}
+			else{
+				// 没有武器时使用默认准星（可以是全透明的占位图）
+				HUDPackage.CrosshairsCenter = nullptr;
+				HUDPackage.CrosshairsLeft = nullptr;
+				HUDPackage.CrosshairsRight = nullptr;
+				HUDPackage.CrosshairsBottom = nullptr;
+				HUDPackage.CrosshairsTop = nullptr;
+			}
+			//计算准星散布
+			FVector2D WalkSpreadRange(0.f,Character->GetCharacterMovement()->MaxWalkSpeed);
+			FVector2D VelocityMultiplierRange(0.f,1.f);
+			FVector Velocity = Character->GetVelocity();
+			Velocity.Z = 0.f;//只考虑水平速度对准星散布的影响，垂直速度不影响
+			CrosshairVelocityFactor = FMath::GetMappedRangeValueClamped(WalkSpreadRange, VelocityMultiplierRange, Velocity.Size());
+
+			if(Character->GetCharacterMovement()->IsFalling())//如果角色在空中，增加散布
+			{
+				CrosshairInAirFactor = FMath::FInterpTo(CrosshairInAirFactor, 2.25f, DeltaTime, 2.25f);
+			}
+			else
+			{
+				CrosshairInAirFactor = FMath::FInterpTo(CrosshairInAirFactor, 0.f, DeltaTime, 2.25f);
+			}
+
+			HUDPackage.CrosshairsSpread = CrosshairVelocityFactor+CrosshairInAirFactor;//最终散布由移动速度和是否在空中共同决定
+
+			// 将数据包交给 HUD，DrawHUD() 下一帧就会用新的纹理绘制准星
+			HUD->SetHUDPackage(HUDPackage);
+		}
+	}
+}
+
+void UCombatComponent::InterpFOV(float DeltaTime)
+{
+	if (EquippedWeapon == nullptr || Character == nullptr) return;
+	if (bAiming)
+	{
+		// 开镜：当前 FOV → 武器的瞄准视野，速度由武器决定（每把枪手感不同）
+		CurrentFOV = FMath::FInterpTo(CurrentFOV, EquippedWeapon->GetZoomedFOV(), DeltaTime, EquippedWeapon->GetZoomInterpSpeed());
+	}
+	else
+	{
+		// 收镜：当前 FOV → 腰射基准视野，速度由 CombatComponent 统一控制
+		CurrentFOV = FMath::FInterpTo(CurrentFOV, DefaultFOV, DeltaTime, ZoomInterpSpeed);
+	}
+	// 将插值后的结果写入相机
+	if(Character && Character->GetFollowCamera())
+	{
+		Character->GetFollowCamera()->SetFieldOfView(CurrentFOV);
+	}
+}
+
 void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& TraceHitTarget)
 {
 	if (Character && Character->IsLocallyControlled()) return;
@@ -213,6 +293,13 @@ void UCombatComponent::BeginPlay()
 	Super::BeginPlay();
 	if(Character){
 		Character->GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
+
+		if(Character->GetFollowCamera())
+		{
+			// 记录相机原始 FOV 作为腰射基准，后续收镜时恢复到此值
+			DefaultFOV = Character->GetFollowCamera()->FieldOfView;
+			CurrentFOV = DefaultFOV;
+		}
 	}
 }
 
@@ -220,6 +307,19 @@ void UCombatComponent::BeginPlay()
 void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	
+
+	// 只对本地玩家运行：射线检测、准星绘制、FOV 平滑
+	if (Character && Character->IsLocallyControlled() && EquippedWeapon)
+	{
+		SetHUDCrosshairs(DeltaTime);
+		FHitResult HitResult;
+		TraceUnderCrosshairs(HitResult);
+		HitTarget = HitResult.ImpactPoint;
+		
+		InterpFOV(DeltaTime);
+	}
+
 }
 
 void UCombatComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &OutLifetimeProps) const
