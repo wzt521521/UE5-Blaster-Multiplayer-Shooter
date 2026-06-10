@@ -8,7 +8,8 @@
 #include "Particles/ParticleSystemComponent.h"
 #include "Particles/ParticleSystem.h"
 #include "Sound/SoundCue.h"
-
+#include "Blaster/Character/BlasterCharacter.h"
+#include "Blaster/Blaster.h"
 AProjectile::AProjectile()
 {
 	bReplicates = true;//启用复制
@@ -20,8 +21,7 @@ AProjectile::AProjectile()
 	CollisionBox->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
 	CollisionBox->SetCollisionResponseToChannel(ECollisionChannel::ECC_Visibility, ECollisionResponse::ECR_Block);
 	CollisionBox->SetCollisionResponseToChannel(ECollisionChannel::ECC_WorldStatic, ECollisionResponse::ECR_Block);
-	CollisionBox->SetCollisionResponseToChannel(ECollisionChannel::ECC_Pawn, ECollisionResponse::ECR_Overlap);
-
+	CollisionBox->SetCollisionResponseToChannel(ECC_SkeletalMesh, ECollisionResponse::ECR_Block);
 	ProjectileMovementComponent = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("ProjectileMovementComponent"));
 	ProjectileMovementComponent->bRotationFollowsVelocity = true;
 	
@@ -44,9 +44,10 @@ void AProjectile::BeginPlay()
 
 }
 
+//OnHit只会在服务器上执行，因为只有服务器才绑定了碰撞事件
 void AProjectile::OnHit(UPrimitiveComponent *HitComp, AActor *OtherActor, UPrimitiveComponent *OtherComp, FVector NormalImpulse, const FHitResult &Hit)
 {
-	Destroy();
+	Destroy();//ue检测到被标记为待销毁的Actor，然后自动销毁，由于bReplicates=true，销毁会被自动复制到其他玩家
 }
 
 void AProjectile::Tick(float DeltaTime)
@@ -55,6 +56,8 @@ void AProjectile::Tick(float DeltaTime)
 
 }
 
+
+//这个本身
 void AProjectile::Destroyed()
 {
 	Super::Destroyed();

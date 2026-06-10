@@ -11,7 +11,6 @@
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
 #include "DrawDebugHelpers.h"
-#include "../HUD/BlasterHud.h"
 #include "../PlayerController/BlasterPlayerController.h"
 
 UCombatComponent::UCombatComponent()
@@ -70,8 +69,10 @@ void UCombatComponent::FireButtonPressed(bool bPressed)
 	bFireButtonPressed = bPressed;
 	if (bFireButtonPressed)
 	{
-		
 		Fire();
+		if(EquippedWeapon){
+			CrosshairShootingFactor = 0.75f;
+		}
 	}
 }
 
@@ -159,14 +160,14 @@ void UCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
 	if (bScreenToWorld)
 	{
 
-		FVector Start = CrosshairWorldPosition;
+		FVector Start = CrosshairWorldPosition;//CrosshairWorldPosition是摄像机的位置
 
 		if (Character)
 		{
 			float DistanceToCharacter = (Character->GetActorLocation() - Start).Size();
 
 			//把射线起点往前推，跳过玩家自己的身体
-			Start += CrosshairWorldDirection * (DistanceToCharacter + 100.f);
+			Start += CrosshairWorldDirection * (DistanceToCharacter + 100.f);//CrosshairWorldDirection 是瞄准的方向向量（单位向量）
 		}
 
 		//发射射线
@@ -189,6 +190,14 @@ void UCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
 			HitTarget = TraceHitResult.ImpactPoint;
 			// DrawDebugSphere(GetWorld(), TraceHitResult.ImpactPoint, 16.f, 12, FColor::Red, false, 2.f);
 		}
+
+		if(TraceHitResult.GetActor() && TraceHitResult.GetActor()->Implements<UInteractWithCrosshairsInterface>())
+		{
+			HUDPackage.CrosshairsColor = FLinearColor::Red;
+		}
+		else{
+			HUDPackage.CrosshairsColor = FLinearColor::White;
+		}
 	}
 }
 
@@ -206,8 +215,8 @@ void UCombatComponent::SetHUDCrosshairs(float DeltaTime)
 		HUD = HUD == nullptr ? Cast<ABlasterHud>(Controller->GetHUD()) : HUD;
 		if(HUD)
 		{
-			// 构建准星数据包
-			FHUDPackage HUDPackage;
+
+			
 			if(EquippedWeapon)
 			{
 				// 把武器上的五块准星纹理填入数据包，HUD 会根据武器散布动态偏移每块的位置
@@ -241,7 +250,25 @@ void UCombatComponent::SetHUDCrosshairs(float DeltaTime)
 				CrosshairInAirFactor = FMath::FInterpTo(CrosshairInAirFactor, 0.f, DeltaTime, 2.25f);
 			}
 
-			HUDPackage.CrosshairsSpread = CrosshairVelocityFactor+CrosshairInAirFactor;//最终散布由移动速度和是否在空中共同决定
+			if(bAiming)//如果角色在瞄准，减少散布
+			{
+				CrosshairAimFactor = FMath::FInterpTo(CrosshairAimFactor, 0.58f, DeltaTime, 30.f);
+			}
+			else
+			{
+				CrosshairAimFactor = FMath::FInterpTo(CrosshairAimFactor, 0.f, DeltaTime, 30.f);
+			}
+
+			// 射击散布从当前值平滑回 0，模拟后坐力恢复（不用 timer 而用插值，帧率无关）
+			CrosshairShootingFactor = FMath::FInterpTo(CrosshairShootingFactor, 0.f, DeltaTime, 40.f);
+
+			// 最终准星散布 = 基础值 + 移动 + 腾空 - 瞄准 + 射击
+			// 瞄准是减项（收束准星），其余是加项（扩大准星）
+			HUDPackage.CrosshairsSpread = 0.5f +
+			CrosshairVelocityFactor+
+			CrosshairInAirFactor-
+			CrosshairAimFactor+
+			CrosshairShootingFactor;
 
 			// 将数据包交给 HUD，DrawHUD() 下一帧就会用新的纹理绘制准星
 			HUD->SetHUDPackage(HUDPackage);

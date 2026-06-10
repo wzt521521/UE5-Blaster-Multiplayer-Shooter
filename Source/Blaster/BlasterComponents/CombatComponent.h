@@ -31,6 +31,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Blaster/HUD/BlasterHud.h"
 #include "CombatComponent.generated.h"
 
 class AWeapon;
@@ -103,13 +104,21 @@ private:
 
 	bool bFireButtonPressed;
 
+
+
 	FVector HitTarget;
+
+	// 构建准星数据包
+	FHUDPackage HUDPackage;
+
 	FTimerHandle FireTimer;
 	bool bCanFire = true;
 
 	// 根据角色移动速度计算的散布因子（0=静止，1=全速奔跑）
 	float CrosshairVelocityFactor;
 	float CrosshairInAirFactor;
+	float CrosshairAimFactor;
+	float CrosshairShootingFactor;
 	//不瞄准时的基准视野，BeginPlay 从相机读取，失镜插值恢复到此值
 	float DefaultFOV;
 

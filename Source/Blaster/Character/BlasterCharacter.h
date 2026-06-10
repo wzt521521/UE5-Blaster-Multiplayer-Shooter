@@ -4,11 +4,12 @@
 
 #include "CoreMinimal.h"
 #include "Blaster/BlasterTypes/TurningInPlace.h"
+#include "Blaster/Interafaces/InteractWithCrosshairsInterface.h"
 #include "GameFramework/Character.h"
 #include "BlasterCharacter.generated.h"
-
+class ABlasterPlayerController;
 UCLASS()
-class BLASTER_API ABlasterCharacter : public ACharacter
+class BLASTER_API ABlasterCharacter : public ACharacter, public IInteractWithCrosshairsInterface
 {
 	GENERATED_BODY()
 
@@ -21,6 +22,9 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void PostInitializeComponents() override;//在这个函数中访问combat组件
 	void PlayFireMontage(bool bAiming);
+
+	void PlayHitReactMontage(); 
+	void Elim();
 
 
 
@@ -40,7 +44,10 @@ protected:
 	virtual void Jump() override;
 	void FireButtonPressed();
 	void FireButtonReleased();
-
+	UFUNCTION()
+	void ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, 
+		AController* InstigatorController, AActor* DamageCauser);
+	void UpdateHUDHealth();
 private:
 	UPROPERTY(VisibleAnywhere, Category = "Camera")
 	class USpringArmComponent* CameraBoom;
@@ -86,6 +93,25 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	class UAnimMontage* FireWeaponMontage;
 
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	UAnimMontage* HitReactMontage;
+
+
+
+	void HideCameraIfCharacterClose();
+
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	float CameraThreshold = 200.f;//摄像机与角色的距离阈值，单位为厘米
+
+	UPROPERTY(EditAnywhere, Category = "Player Stats")
+	float MaxHealth = 100.f;
+	UPROPERTY(ReplicatedUsing=OnRep_Health)
+	float Health = 100.f;
+
+	UFUNCTION()
+	void OnRep_Health();
+
+	ABlasterPlayerController* BlasterPlayerController;
 public:
 	void SetOverlappingWeapon(AWeapon* Weapon) ;
 

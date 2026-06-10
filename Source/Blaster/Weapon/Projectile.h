@@ -41,6 +41,9 @@ private:
 
 	UPROPERTY(EditAnywhere)
 	class USoundCue* ImpactSound;//子弹命中时播放的音效
+protected:
+	UPROPERTY(EditAnywhere)
+	float Damage = 20.f;
 public:	
 
 

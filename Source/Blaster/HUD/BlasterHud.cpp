@@ -2,7 +2,8 @@
 
 
 #include "BlasterHud.h"
-
+#include "Characteroverlay.h"
+#include "GameFramework/PlayerController.h"
 void ABlasterHud::DrawHUD()
 {
 	Super::DrawHUD();
@@ -22,33 +23,33 @@ void ABlasterHud::DrawHUD()
 		if(HUDPackage.CrosshairsCenter)
 		{
             FVector2D Spread(0.f, 0.f);
-			DrawCrosshair(HUDPackage.CrosshairsCenter, ViewportCenter,Spread);
+			DrawCrosshair(HUDPackage.CrosshairsCenter, ViewportCenter,Spread, HUDPackage.CrosshairsColor);
 		}
 		if(HUDPackage.CrosshairsLeft)
 		{
 			FVector2D Spread(-SpreadScaled, 0.f);
-			DrawCrosshair(HUDPackage.CrosshairsLeft, ViewportCenter, Spread);
+			DrawCrosshair(HUDPackage.CrosshairsLeft, ViewportCenter, Spread, HUDPackage.CrosshairsColor);
 		}
 		if(HUDPackage.CrosshairsRight)
 		{
 			FVector2D Spread(SpreadScaled, 0.f);
-			DrawCrosshair(HUDPackage.CrosshairsRight, ViewportCenter, Spread);
+			DrawCrosshair(HUDPackage.CrosshairsRight, ViewportCenter, Spread, HUDPackage.CrosshairsColor);
 		}
 		if(HUDPackage.CrosshairsBottom)
 		{
 			FVector2D Spread(0.f, SpreadScaled);
-			DrawCrosshair(HUDPackage.CrosshairsBottom, ViewportCenter, Spread);
+			DrawCrosshair(HUDPackage.CrosshairsBottom, ViewportCenter, Spread, HUDPackage.CrosshairsColor);
 		}
 		if(HUDPackage.CrosshairsTop)
 		{
 			FVector2D Spread(0.f, -SpreadScaled);
-			DrawCrosshair(HUDPackage.CrosshairsTop, ViewportCenter, Spread);
+			DrawCrosshair(HUDPackage.CrosshairsTop, ViewportCenter, Spread, HUDPackage.CrosshairsColor);
 		}
 	}
 }
 
 // 将指定纹理以 ViewportCenter 为中心绘制到屏幕上
-void ABlasterHud::DrawCrosshair(UTexture2D *Texture, FVector2D ViewportCenter,FVector2D Spread)
+void ABlasterHud::DrawCrosshair(UTexture2D *Texture, FVector2D ViewportCenter,FVector2D Spread, FLinearColor CrosshairColor)
 {
 	// 获取纹理实际像素尺寸
 	const float TextureWidth = Texture->GetSizeX();
@@ -71,6 +72,28 @@ void ABlasterHud::DrawCrosshair(UTexture2D *Texture, FVector2D ViewportCenter,FV
 		0.f,	// 起始 V
 		1.f,	// 纹理宽度占比
 		1.f,	// 纹理高度占比
-		FLinearColor::White
+		CrosshairColor
 	);
+}
+
+void ABlasterHud::BeginPlay()
+{
+	Super::BeginPlay();
+	AddCharacterOverlay();
+}
+
+void ABlasterHud::AddCharacterOverlay()
+{
+	// 获取当前 HUD 所属的 PlayerController
+	APlayerController* PlayerController = GetOwningPlayerController();
+
+	// 用编辑器配置的 CharacterOverlayClass 蓝图作为模具，创建 Widget 实例
+	if (PlayerController && CharacterOverlayClass)
+	{
+		// CreateWidget 相当于"用模具生产一个实例"——这里不涉及网络，纯本地操作
+		// 服务器上的 HUD 会创建一份，每个客户端上的 HUD 也会各自创建一份
+		// 所以 CharacterOverlay 不需要复制——它本来就每个端都有
+		CharacterOverlay = CreateWidget<UCharacteroverlay>(PlayerController, CharacterOverlayClass);
+		CharacterOverlay->AddToViewport();
+	}
 }

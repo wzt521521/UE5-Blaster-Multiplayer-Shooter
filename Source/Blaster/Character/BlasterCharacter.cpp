@@ -11,8 +11,14 @@
 #include "../Weapon/Weapon.h"
 #include "../BlasterComponents/CombatComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "Blaster/Blaster.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "BlasterAnimInstance.h"
+#include "../PlayerController/BlasterPlayerController.h"
+#include "Blaster/GameMode/BlasterGameMode.h"
+
+
+
 ABlasterCharacter::ABlasterCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -36,9 +42,10 @@ ABlasterCharacter::ABlasterCharacter()
 	Combat->SetIsReplicated(true);
 
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
-
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
+	GetMesh()->SetCollisionObjectType(ECC_SkeletalMesh);
 	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
+	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Visibility, ECollisionResponse::ECR_Block);
 	GetCharacterMovement()->RotationRate = FRotator(0.f, 0.f, 850.f);
 	TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 
@@ -52,11 +59,16 @@ ABlasterCharacter::ABlasterCharacter()
 void ABlasterCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-
-	UE_LOG(LogTemp, Warning, TEXT("Char Capsule [%s]: CollisionEnabled=%d, ResponseToWorldDynamic=%d"),
-		*UEnum::GetValueAsString(GetLocalRole()),
-		GetCapsuleComponent()->GetCollisionEnabled(),
-		GetCapsuleComponent()->GetCollisionResponseToChannel(ECC_WorldDynamic));
+	UpdateHUDHealth();
+	// ————————————————————————————————————————————
+	// 血量 UI 初始化：把初始血量发送到屏幕上的血条
+	// 这里的调用时机是 BeginPlay（只执行一次），所以只负责 UI 初始显示
+	// 后续血量变化由 OnRep_Health 驱动
+	// ————————————————————————————————————————————
+	
+	if(HasAuthority()){
+		OnTakeAnyDamage.AddDynamic(this,&ABlasterCharacter::ReceiveDamage);
+	}
 }
 
 void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -103,19 +115,36 @@ void ABlasterCharacter::PlayFireMontage(bool bAiming)
 
 }
 
+void ABlasterCharacter::PlayHitReactMontage()
+{
+	if(Combat==NULL||Combat->EquippedWeapon==NULL)return;
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if(AnimInstance && HitReactMontage)
+	{
+		AnimInstance->Montage_Play(HitReactMontage);
+		FName SectionName = FName("FromFront");
+		AnimInstance->Montage_JumpToSection(SectionName);
+	}
+}
 
-  
+void ABlasterCharacter::Elim()
+{
+
+}
+
 void ABlasterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME_CONDITION(ABlasterCharacter, OverlappingWeapon, COND_OwnerOnly);//注册要复制的变量
+	DOREPLIFETIME(ABlasterCharacter, Health);
 }
 
 void ABlasterCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	AimOffset(DeltaTime);
+	HideCameraIfCharacterClose();
 }
 
 
@@ -259,6 +288,33 @@ void ABlasterCharacter::FireButtonReleased()
 	}
 }
 
+//这个函数只会在服务器上面调用
+void ABlasterCharacter::ReceiveDamage(AActor *DamagedActor, float Damage, const UDamageType *DamageType, AController *InstigatorController, AActor *DamageCauser)
+{
+	Health = FMath::Clamp(Health - Damage, 0.f, MaxHealth);
+	UpdateHUDHealth();
+	PlayHitReactMontage();
+
+	if(Health <= 0.f){
+		ABlasterGameMode* BlasterGameMode = GetWorld()->GetAuthGameMode<ABlasterGameMode>();
+		if(BlasterGameMode){
+			BlasterPlayerController = BlasterPlayerController == nullptr ? Cast<ABlasterPlayerController>(Controller) : BlasterPlayerController;
+			ABlasterPlayerController* AttackerController = Cast<ABlasterPlayerController>(InstigatorController);
+			BlasterGameMode->PlayEliminated(this, BlasterPlayerController, AttackerController);
+		}
+	}
+	
+}
+
+void ABlasterCharacter::UpdateHUDHealth()
+{
+	BlasterPlayerController = BlasterPlayerController == nullptr ? Cast<ABlasterPlayerController>(Controller) : BlasterPlayerController;
+	if (BlasterPlayerController)
+	{
+		BlasterPlayerController->SetHUDHealth(Health, MaxHealth);
+	}
+}
+
 void ABlasterCharacter::OnRep_OverlappingWeapon(AWeapon* LastWeapon)//参数自动传入
 //当客户端收到服务器传来的新值时，客户端会执行这个函数
 {
@@ -304,6 +360,52 @@ void ABlasterCharacter::TurnInPlace(float DeltaTime)
 		}
 	}
 
+}
+
+
+void ABlasterCharacter::HideCameraIfCharacterClose()
+{
+	// ————————————————————————————————————————————
+	// 摄像机近身透视防护：当摄像机离角色太近时（如被墙壁挤压、滚轮拉近），
+	// 隐藏角色身体和武器模型，防止摄像机穿透到模型内部看到"空心"或"眼部穿模"
+	// 只在本地玩家执行——远程玩家看到的第三人称视角不需要此处理
+	// ————————————————————————————————————————————
+	if (!IsLocallyControlled()) return;                                                     // 只处理本地控制端，不需要画蛇添足管别人的画面
+
+	// 计算摄像机到角色中心点之间的距离，如果小于阈值（200cm）则认为摄像机进入了角色体内
+	// CameraThreshold = 200.f，约2米，足以覆盖角色胶囊体半径（约34cm）+ 弹簧臂最小长度
+	float DistanceToCamera = (FollowCamera->GetComponentLocation() - GetActorLocation()).Size();
+	if (DistanceToCamera < CameraThreshold)
+	{
+		// 摄像机太近 → 隐藏角色本体，否则画面会被角色的脑袋/肩膀挡住
+		GetMesh()->SetVisibility(false);
+
+		// 同时隐藏武器模型（对所有者不可见），否则枪口会"怼进"摄像机镜头里
+		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
+		{
+			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = true;
+			// 武器用 bOwnerNoSee 而非 SetVisibility(false)：
+			//   因为武器是独立的 Actor，对 OWNER 隐藏可以让本地玩家看不到武器，
+			//   同时其他玩家（在多人游戏中）依然能看到该玩家的武器——他们不会经历穿模
+		}
+	}
+	else
+	{
+		// 摄像机已经退回到安全距离 → 恢复显示角色和武器
+		GetMesh()->SetVisibility(true);
+
+		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
+		{
+			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = false;
+		}
+	}
+}
+
+
+void ABlasterCharacter::OnRep_Health()
+{
+	UpdateHUDHealth();
+	PlayHitReactMontage();
 }
 
 void ABlasterCharacter::SetOverlappingWeapon(AWeapon *Weapon)
