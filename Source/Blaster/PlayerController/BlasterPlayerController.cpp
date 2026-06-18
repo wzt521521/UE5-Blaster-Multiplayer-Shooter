@@ -20,6 +20,7 @@ void ABlasterPlayerController::BeginPlay()
 void ABlasterPlayerController::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
+    PollInit();
 }
 
 void ABlasterPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -67,8 +68,14 @@ void ABlasterPlayerController::SetHUDHealth(float Health, float MaxHealth)
 
         // ② 血量数字文本：格式化为 "90 / 100" 这种形式
         // FMath::CeilToInt 向上取整，保证哪怕只剩 0.1 也至少显示 "1"
-        FString HealthTextStr = FString::Printf(TEXT("%d / %d"), FMath::CeilToInt(Health), FMath::CeilToInt(MaxHealth));
+        FString HealthTextStr = FString::Printf(TEXT("%d/%d"), FMath::CeilToInt(Health), FMath::CeilToInt(MaxHealth));
         BlasterHud->CharacterOverlay->HealthText->SetText(FText::FromString(HealthTextStr));
+    }
+    else
+    {
+        bInitializeHealth = true;
+        HUDHealth = Health;
+        HUDMaxHealth = MaxHealth;
     }
 }
 
@@ -78,7 +85,45 @@ void ABlasterPlayerController::SetHUDScore(float Score)
     bool bHUDValid = BlasterHud && BlasterHud->CharacterOverlay && BlasterHud->CharacterOverlay->ScoreAmount;
     if (bHUDValid)
     {
-        FString ScoreText = FString::Printf(TEXT("%d"), FMath::CeilToInt(Score));
+        FString ScoreText = FString::Printf(TEXT("%d"), FMath::FloorToInt(Score));
         BlasterHud->CharacterOverlay->ScoreAmount->SetText(FText::FromString(ScoreText));
+    }
+    else
+    {
+        bInitializeScore = true;
+        HUDScore = Score;
+    }
+}
+
+void ABlasterPlayerController::SetHUDDefeats(int32 Defeats)
+{
+    BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+    bool bHUDValid = BlasterHud && BlasterHud->CharacterOverlay && BlasterHud->CharacterOverlay->DefeatsAmount;
+    if (bHUDValid)
+    {
+        FString DefeatsText = FString::Printf(TEXT("%d"), Defeats);
+        BlasterHud->CharacterOverlay->DefeatsAmount->SetText(FText::FromString(DefeatsText));
+    }
+    else
+    {
+        bInitializeDefeats = true;
+        HUDDefeats = Defeats;
+    }
+}
+
+void ABlasterPlayerController::PollInit()
+{
+    if (CharacterOverlay == nullptr)
+    {
+        if (BlasterHud && BlasterHud->CharacterOverlay)
+        {
+            CharacterOverlay = BlasterHud->CharacterOverlay;
+            if (CharacterOverlay)
+            {
+                if (bInitializeHealth) SetHUDHealth(HUDHealth, HUDMaxHealth);
+                if (bInitializeScore) SetHUDScore(HUDScore);
+                if (bInitializeDefeats) SetHUDDefeats(HUDDefeats);
+            }
+        }
     }
 }

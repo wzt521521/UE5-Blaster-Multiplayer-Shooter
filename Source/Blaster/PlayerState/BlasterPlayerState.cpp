@@ -4,6 +4,14 @@
 #include "BlasterPlayerState.h"
 #include "Blaster/Character/BlasterCharacter.h"
 #include "Blaster/PlayerController/BlasterPlayerController.h"
+#include "Net/UnrealNetwork.h"
+
+void ABlasterPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+    Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+    DOREPLIFETIME(ABlasterPlayerState, Defeats);
+}
 
 void ABlasterPlayerState::AddToScore(float ScoreAmount)
 {
@@ -40,6 +48,42 @@ void ABlasterPlayerState::OnRep_Score()
         if(Controller)
         {
             Controller->SetHUDScore(GetScore());
+        }
+    }
+}
+
+void ABlasterPlayerState::AddToDefeats(int32 DefeatsAmount)
+{
+    // ————————————————————————————————————————————
+    // 败场链路（服务器执行）：Defeats 是需要手动复制的变量，
+    // 修改后通过 OnRep_Defeats 同步到客户端 HUD
+    // ————————————————————————————————————————————
+    Defeats += DefeatsAmount;
+
+    Character = Character == NULL ? Cast<ABlasterCharacter>(GetPawn()) : Character;
+    if (Character)
+    {
+        Controller = Controller == NULL ? Cast<ABlasterPlayerController>(Character->Controller) : Controller;
+        if (Controller)
+        {
+            Controller->SetHUDDefeats(Defeats);
+        }
+    }
+}
+
+void ABlasterPlayerState::OnRep_Defeats()
+{
+    // ————————————————————————————————————————————
+    // 败场链路（客户端）：Defeats 被复制到客户端时触发，
+    // 负责把服务器同步过来的败场数更新到 HUD
+    // ————————————————————————————————————————————
+    Character = Character == NULL ? Cast<ABlasterCharacter>(GetPawn()) : Character;
+    if (Character)
+    {
+        Controller = Controller == NULL ? Cast<ABlasterPlayerController>(Character->Controller) : Controller;
+        if (Controller)
+        {
+            Controller->SetHUDDefeats(Defeats);
         }
     }
 }

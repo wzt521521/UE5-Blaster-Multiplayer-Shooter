@@ -17,15 +17,28 @@ class BLASTER_API ABlasterPlayerController : public APlayerController
 	GENERATED_BODY()
 public:
 	void SetHUDHealth(float Health, float MaxHealth);
-	virtual void OnPossess(APawn* InPawn) override;
-	// ↑ 复活 / 换人时 UE 自动回调，在这里重置血量等 HUD 数据
-
 	void SetHUDScore(float Score);
+	void SetHUDDefeats(int32 Defeats);
+
+	virtual void OnPossess(APawn* InPawn) override;
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	void PollInit();
 private:
 	UPROPERTY()
 	ABlasterHud* BlasterHud;
+
+	UPROPERTY()
+	class UCharacteroverlay* CharacterOverlay;
+
+	float HUDHealth;
+	bool bInitializeHealth = false;
+	float HUDMaxHealth;
+	float HUDScore;
+	bool bInitializeScore = false;
+	int32 HUDDefeats;
+	bool bInitializeDefeats = false;
 };
