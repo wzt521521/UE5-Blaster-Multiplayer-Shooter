@@ -4,9 +4,18 @@
 #include "BlasterGameMode.h"
 #include "Blaster/Character/BlasterCharacter.h"
 #include "Kismet/GameplayStatics.h"
+#include "Blaster/PlayerState/BlasterPlayerState.h"
+#include "Blaster/PlayerController/BlasterPlayerController.h"
 #include "GameFramework/PlayerStart.h"
 void ABlasterGameMode::PlayEliminated(ABlasterCharacter *EliminatedCharacter, ABlasterPlayerController *VictimController, ABlasterPlayerController *AttackerController)
 {
+    ABlasterPlayerState* AttackerPlayerState = AttackerController ? Cast<ABlasterPlayerState>(AttackerController->PlayerState) : nullptr;
+    ABlasterPlayerState* VictimPlayerState = VictimController ? Cast<ABlasterPlayerState>(VictimController->PlayerState) : nullptr;
+
+    if(AttackerPlayerState&&AttackerPlayerState!=VictimPlayerState)
+    {
+        AttackerPlayerState->AddToScore(1.f);
+    }
     if (EliminatedCharacter)
     {
         EliminatedCharacter->Elim();//死亡角色播放死亡动画
@@ -18,6 +27,7 @@ void ABlasterGameMode::RequestRespawn(ACharacter *EliminatedCharacter, AControll
     // ① 清理旧尸体——被淘汰的角色 Actor 已播完死亡动画，现在从世界移除
     if (EliminatedCharacter)
     {
+        EliminatedCharacter->Reset();       // 把 Actor 属性恢复到 CDO 默认值，防止残留状态带到下次复活
         EliminatedCharacter->Destroy();     // 销毁旧角色（会触发 Destroyed 回调做清理）
     }
 

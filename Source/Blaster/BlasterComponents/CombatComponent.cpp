@@ -59,6 +59,12 @@ void UCombatComponent::OnRep_EquippedWeapon()
 {
 	if(EquippedWeapon && Character){
 		//装备武器时，切换角色旋转模式：从"移动朝向"变成"控制器朝向"。
+		EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);//设置武器状态为已装备
+		const USkeletalMeshSocket* HandSocket = Character->GetMesh()->GetSocketByName(FName("RightHandSocket"));
+		if(HandSocket)
+		{
+			HandSocket->AttachActor(EquippedWeapon, Character->GetMesh());//把武器附着到角色的右手骨骼上
+		}
 		Character->GetCharacterMovement()->bOrientRotationToMovement = false;
 		Character->bUseControllerRotationYaw = true;
 	}

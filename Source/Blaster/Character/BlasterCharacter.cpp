@@ -17,7 +17,7 @@
 #include "../PlayerController/BlasterPlayerController.h"
 #include "Blaster/GameMode/BlasterGameMode.h"
 #include "TimerManager.h"
-
+#include "Blaster/PlayerState/BlasterPlayerState.h"
 
 
 ABlasterCharacter::ABlasterCharacter()
@@ -139,6 +139,11 @@ void ABlasterCharacter::PlayElimMontage()//只负责播放动画
 
 void ABlasterCharacter::Elim()
 {
+	// 掉落武器
+	if(Combat&&Combat->EquippedWeapon)
+	{
+		Combat->EquippedWeapon->Dropped();
+	}
 	MulticastElim();
 	// 延迟后自动回调 ElimTimerFinished，给死亡动画留出播放时间
 	GetWorldTimerManager().SetTimer(
@@ -153,6 +158,15 @@ void ABlasterCharacter::MulticastElim_Implementation()//MulticastElim只负责�
 {
 	bElimmed = true;
 	PlayElimMontage();
+
+	//禁用碰撞
+	GetCharacterMovement()->DisableMovement();
+	GetCharacterMovement()->StopMovementImmediately();
+	if(BlasterPlayerController){
+		DisableInput(BlasterPlayerController);
+	}
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);//禁用碰撞
+	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);//禁用碰撞
 }
 
 void ABlasterCharacter::ElimTimerFinsished()
@@ -177,6 +191,7 @@ void ABlasterCharacter::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 	AimOffset(DeltaTime);
 	HideCameraIfCharacterClose();
+	PollInit();
 }
 
 
@@ -344,6 +359,16 @@ void ABlasterCharacter::UpdateHUDHealth()
 	if (BlasterPlayerController)
 	{
 		BlasterPlayerController->SetHUDHealth(Health, MaxHealth);
+	}
+}
+
+void ABlasterCharacter::PollInit()
+{
+	if(BlasterPlayerController==NULL){
+		BlasterPlayerState = GetPlayerState<ABlasterPlayerState>();
+		if(BlasterPlayerState){
+			BlasterPlayerState->AddToScore(0.f);
+		}
 	}
 }
 

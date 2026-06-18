@@ -28,4 +28,7 @@ public:
 
 	UPROPERTY(meta = (BindWidget))
 	UTextBlock* HealthText;      // 血量数字文本，绑定了蓝图中的 TextBlock 控件
+
+	UPROPERTY(meta = (BindWidget))
+	UTextBlock* ScoreAmount;     // 分数数字文本，绑定了蓝图中的 TextBlock 控件
 };

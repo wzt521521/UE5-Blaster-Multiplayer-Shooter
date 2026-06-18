@@ -87,7 +87,14 @@ void AWeapon::OnRep_WeaponState()
 	{
 		case EWeaponState::EWS_Equipped:
 		    ShowPickupWidget(false);
-			//AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);//只能在服务器端禁用？
+			WeaponMesh->SetSimulatePhysics(false);
+			WeaponMesh->SetEnableGravity(false);
+			WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			break;
+		case EWeaponState::EWS_Dropped:
+			WeaponMesh->SetSimulatePhysics(true);
+			WeaponMesh->SetEnableGravity(true);
+			WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 			break;
 	}
 }
@@ -103,8 +110,21 @@ void AWeapon::SetWeaponState(EWeaponState State){
 	switch ((WeaponState))
 	{
 		case EWeaponState::EWS_Equipped:
-		    ShowPickupWidget(false);//服务器隐藏
+		    ShowPickupWidget(false);
 			AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			WeaponMesh->SetSimulatePhysics(false);
+			WeaponMesh->SetEnableGravity(false);
+			WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			break;
+		case EWeaponState::EWS_Dropped:
+			if(HasAuthority())//只有服务器才启用碰撞
+			{
+				AreaSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			}
+			WeaponMesh->SetSimulatePhysics(true);
+			WeaponMesh->SetEnableGravity(true);
+			WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+
 			break;
 	}
 
@@ -145,4 +165,12 @@ void AWeapon::Fire(const FVector& HitTarget)//此函数每个客户端独自调�
 			}
 		}
 	}
+}
+
+void AWeapon::Dropped()
+{
+	SetWeaponState(EWeaponState::EWS_Dropped);
+	FDetachmentTransformRules DetachRules(EDetachmentRule::KeepWorld, true);//设置分离规则
+	WeaponMesh->DetachFromComponent(DetachRules);//分离武器骨骼网格体
+	SetOwner(nullptr);//设置武器的拥有者为nullptr
 }

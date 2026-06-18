@@ -8,6 +8,7 @@
 #include "GameFramework/Character.h"
 #include "BlasterCharacter.generated.h"
 class ABlasterPlayerController;
+class ABlasterPlayerState;
 UCLASS()
 class BLASTER_API ABlasterCharacter : public ACharacter, public IInteractWithCrosshairsInterface
 {
@@ -31,7 +32,7 @@ public:
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastElim();
 
-
+	ABlasterPlayerState* BlasterPlayerState;
 
 protected:
 
@@ -53,6 +54,7 @@ protected:
 	void ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, 
 		AController* InstigatorController, AActor* DamageCauser);
 	void UpdateHUDHealth();
+	void PollInit();
 private:
 	UPROPERTY(VisibleAnywhere, Category = "Camera")
 	class USpringArmComponent* CameraBoom;
@@ -138,4 +140,7 @@ public:
 	class AWeapon* GetEquippedWeapon() const;
 	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 	FORCEINLINE bool IsElimmed() const { return bElimmed; }
+	FORCEINLINE float GetHealth() const { return Health; }
+	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
+	// ↑ 供 BlasterPlayerController::OnPossess 拉取血量，复活时重置 HUD 血条用
 };

@@ -6,6 +6,7 @@
 #include "Blaster/HUD/Characteroverlay.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
+#include "Blaster/Character/BlasterCharacter.h"
 
 void ABlasterPlayerController::BeginPlay()
 {
@@ -24,6 +25,19 @@ void ABlasterPlayerController::Tick(float DeltaTime)
 void ABlasterPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+}
+
+void ABlasterPlayerController::OnPossess(APawn* InPawn)
+{
+    Super::OnPossess(InPawn);
+
+    // 每次 Controller 接管新 Pawn（复活 / 切角色）时，把新角色的血量同步到 HUD
+    // 链路：新 Character（数据源）→ Controller（中转）→ HUD（展示）
+    ABlasterCharacter* BlasterCharacter = Cast<ABlasterCharacter>(InPawn);
+    if (BlasterCharacter)
+    {
+        SetHUDHealth(BlasterCharacter->GetHealth(), BlasterCharacter->GetMaxHealth());
+    }
 }
 
 void ABlasterPlayerController::SetHUDHealth(float Health, float MaxHealth)
@@ -55,5 +69,16 @@ void ABlasterPlayerController::SetHUDHealth(float Health, float MaxHealth)
         // FMath::CeilToInt 向上取整，保证哪怕只剩 0.1 也至少显示 "1"
         FString HealthTextStr = FString::Printf(TEXT("%d / %d"), FMath::CeilToInt(Health), FMath::CeilToInt(MaxHealth));
         BlasterHud->CharacterOverlay->HealthText->SetText(FText::FromString(HealthTextStr));
+    }
+}
+
+void ABlasterPlayerController::SetHUDScore(float Score)
+{
+    BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+    bool bHUDValid = BlasterHud && BlasterHud->CharacterOverlay && BlasterHud->CharacterOverlay->ScoreAmount;
+    if (bHUDValid)
+    {
+        FString ScoreText = FString::Printf(TEXT("%d"), FMath::CeilToInt(Score));
+        BlasterHud->CharacterOverlay->ScoreAmount->SetText(FText::FromString(ScoreText));
     }
 }
