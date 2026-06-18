@@ -23,7 +23,7 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaTime)//每帧调用
     }
     
     if(BlasterCharacter==NULL) return;
-
+    bElimmed = BlasterCharacter->IsElimmed();//从角色类中获取是否死亡
     FVector Velocity = BlasterCharacter->GetVelocity();//获取角色的速度
     Velocity.Z = 0;//只考虑水平速度
     Speed = Velocity.Size();//计算速度的大小

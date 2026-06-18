@@ -16,6 +16,7 @@
 #include "BlasterAnimInstance.h"
 #include "../PlayerController/BlasterPlayerController.h"
 #include "Blaster/GameMode/BlasterGameMode.h"
+#include "TimerManager.h"
 
 
 
@@ -127,9 +128,40 @@ void ABlasterCharacter::PlayHitReactMontage()
 	}
 }
 
+void ABlasterCharacter::PlayElimMontage()//只负责播放动画
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if(AnimInstance && ElimMontage)
+	{
+		AnimInstance->Montage_Play(ElimMontage);
+	}
+}
+
 void ABlasterCharacter::Elim()
 {
+	MulticastElim();
+	// 延迟后自动回调 ElimTimerFinished，给死亡动画留出播放时间
+	GetWorldTimerManager().SetTimer(
+		ElimTimer,                                       // FTimerHandle 句柄
+		this,                                            // 回调对象 = 当前角色
+		&ABlasterCharacter::ElimTimerFinsished,          // 回调函数
+		ElimDelay                                        // 延迟秒数
+	);
+}
 
+void ABlasterCharacter::MulticastElim_Implementation()//MulticastElim只负责多播，其他逻辑由另一个Elim函数处理
+{
+	bElimmed = true;
+	PlayElimMontage();
+}
+
+void ABlasterCharacter::ElimTimerFinsished()
+{
+	ABlasterGameMode* BlasterGameMode = Cast<ABlasterGameMode>(UGameplayStatics::GetGameMode(this));
+	if(BlasterGameMode)
+	{
+		BlasterGameMode->RequestRespawn(this, Controller);//调用复活
+	}
 }
 
 void ABlasterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &OutLifetimeProps) const
@@ -296,7 +328,7 @@ void ABlasterCharacter::ReceiveDamage(AActor *DamagedActor, float Damage, const 
 	PlayHitReactMontage();
 
 	if(Health <= 0.f){
-		ABlasterGameMode* BlasterGameMode = GetWorld()->GetAuthGameMode<ABlasterGameMode>();
+		ABlasterGameMode* BlasterGameMode = GetWorld()->GetAuthGameMode<ABlasterGameMode>();//先获取游戏模式
 		if(BlasterGameMode){
 			BlasterPlayerController = BlasterPlayerController == nullptr ? Cast<ABlasterPlayerController>(Controller) : BlasterPlayerController;
 			ABlasterPlayerController* AttackerController = Cast<ABlasterPlayerController>(InstigatorController);
@@ -407,6 +439,7 @@ void ABlasterCharacter::OnRep_Health()
 	UpdateHUDHealth();
 	PlayHitReactMontage();
 }
+
 
 void ABlasterCharacter::SetOverlappingWeapon(AWeapon *Weapon)
 {
