@@ -17,6 +17,7 @@
 #include "../PlayerController/BlasterPlayerController.h"
 #include "Blaster/GameMode/BlasterGameMode.h"
 #include "TimerManager.h"
+#include "Blaster/Weapon/WeaponTypes.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
 
 
@@ -91,6 +92,7 @@ void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &ABlasterCharacter::FireButtonPressed);
 	PlayerInputComponent->BindAction("Fire", IE_Released, this, &ABlasterCharacter::FireButtonReleased);
 
+	PlayerInputComponent->BindAction("Reload", IE_Pressed, this, &ABlasterCharacter::ReloadButtonPressed);
 }
 
 void ABlasterCharacter::PostInitializeComponents()
@@ -114,6 +116,28 @@ void ABlasterCharacter::PlayFireMontage(bool bAiming)
 		AnimInstance->Montage_JumpToSection(SectionName);
 	}
 
+}
+
+void ABlasterCharacter::PlayReloadMontage()
+{
+	if(Combat==NULL||Combat->EquippedWeapon==NULL)return;
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if(AnimInstance && ReloadMontage)
+	{
+		AnimInstance->Montage_Play(ReloadMontage);
+		FName SectionName;
+		switch(Combat->EquippedWeapon->GetReloadType()){
+			case EWeaponType::EWT_AssaultRifle:
+				SectionName = FName("Rifle"); 
+				break;
+			// case EWeaponType::EWT_SubmachineGun:
+			// 	SectionName = FName("SMGAmmo");
+			// 	break;
+			// default:
+			// 	SectionName = FName("ARAmmo");
+			// 	break;
+		}
+	}
 }
 
 void ABlasterCharacter::PlayHitReactMontage()
@@ -250,6 +274,14 @@ void ABlasterCharacter::CrouchButtonPressed()
 		Crouch();
 	}
 	
+}
+
+void ABlasterCharacter::ReloadButtonPressed()
+{
+	if(Combat)
+	{
+		Combat->Reload();
+	}
 }
 
 void ABlasterCharacter::AimButtonPressed()

@@ -32,6 +32,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Blaster/HUD/BlasterHud.h"
+#include "Blaster/Weapon/WeaponTypes.h"
 #include "CombatComponent.generated.h"
 
 class AWeapon;
@@ -54,6 +55,7 @@ public:
 	friend class ABlasterCharacter;
 
 	void EquipWeapon(AWeapon* WeaponToEquip);
+	void Reload();
 
 protected:
 	
@@ -62,7 +64,8 @@ protected:
 
 	UFUNCTION(Server, Reliable)
 	void ServerSetAiming(bool bIsAiming);
-
+	UFUNCTION(Server, Reliable)
+	void ServerReload();
 	UFUNCTION()
 	void OnRep_EquippedWeapon();
 
@@ -73,6 +76,23 @@ protected:
 	void FireTimerFinished();
 	bool CanFire();
 
+	//当前武器携带的子弹
+	UPROPERTY(ReplicatedUsing = OnRep_CarriedAmmo)
+	int32 CarriedAmmo;
+
+	UFUNCTION()
+	void OnRep_CarriedAmmo();
+
+	void InitializeCarriedAmmo();
+
+	UPROPERTY(EditAnywhere)
+	int32 StartingARAmmo=30;
+
+	UPROPERTY(EditAnywhere)
+	int32 StartingSMGAmmo=30;
+
+	//仓库
+	TMap<EWeaponType, int32> CarriedAmmoMap;
 
 	UFUNCTION(Server, Reliable)
 	void ServerFire(const FVector_NetQuantize& TraceHitTarget, float FireDelay);

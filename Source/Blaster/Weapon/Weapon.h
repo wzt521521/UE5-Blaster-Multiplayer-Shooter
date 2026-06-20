@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "WeaponTypes.h"
 #include "Weapon.generated.h"
 
 class UTexture2D;
@@ -17,6 +18,7 @@ enum class EWeaponState : uint8
 	EWS_Dropped UMETA(DisplayName = "Dropped"),
 	EWS_MAX UMETA(DisplayName = "DefaultMAX")
 };
+
 
 UCLASS()
 class BLASTER_API AWeapon : public AActor
@@ -98,7 +100,8 @@ private:
 	ABlasterCharacter* BlasterCharacterOwner;
 	UPROPERTY()
 	ABlasterPlayerController* BlasterControllerOwner;
-
+	UPROPERTY(EditAnywhere, Category = "Weapon Properties")
+	EWeaponType WeaponType;
 
 public:
 	// 准星五方向纹理，CombactComponent 每帧读取并打包传给 HUD 绘制
@@ -127,4 +130,9 @@ public:
 	FORCEINLINE float GetZoomedFOV() const { return ZoomedFOV; }
 	FORCEINLINE float GetZoomInterpSpeed() const { return ZoomInterpSpeed; }
 	FORCEINLINE bool IsEmpty() const { return Ammo <= 0; }
+	FORCEINLINE bool IsFull() const { return Ammo >= MagCapacity; }
+	FORCEINLINE EWeaponType GetWeaponType() const { return WeaponType; }
+	FORCEINLINE EWeaponType GetReloadType() const { return WeaponType; }
+	FORCEINLINE int32 GetAmmo() const { return Ammo; }
+	FORCEINLINE int32 GetMagCapacity() const { return MagCapacity; }
 };
