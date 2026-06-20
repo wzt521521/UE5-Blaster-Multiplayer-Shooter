@@ -111,6 +111,17 @@ void ABlasterPlayerController::SetHUDDefeats(int32 Defeats)
     }
 }
 
+void ABlasterPlayerController::SetHUDWeaponAmmo(int32 Ammo)
+{
+    BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+    bool bHUDValid = BlasterHud && BlasterHud->CharacterOverlay && BlasterHud->CharacterOverlay->AmmoAmount;
+    if (bHUDValid)
+    {
+        FString AmmoText = FString::Printf(TEXT("%d"), Ammo);
+        BlasterHud->CharacterOverlay->AmmoAmount->SetText(FText::FromString(AmmoText));
+    }
+}
+
 void ABlasterPlayerController::PollInit()
 {
     if (CharacterOverlay == nullptr)

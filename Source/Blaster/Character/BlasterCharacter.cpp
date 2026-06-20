@@ -156,6 +156,9 @@ void ABlasterCharacter::Elim()
 
 void ABlasterCharacter::MulticastElim_Implementation()//MulticastElim只负责多播，其他逻辑由另一个Elim函数处理
 {
+	if(BlasterPlayerController){
+		BlasterPlayerController->SetHUDWeaponAmmo(0);
+	}
 	bElimmed = true;
 	PlayElimMontage();
 

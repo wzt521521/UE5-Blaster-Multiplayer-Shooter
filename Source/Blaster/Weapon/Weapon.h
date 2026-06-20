@@ -7,6 +7,8 @@
 #include "Weapon.generated.h"
 
 class UTexture2D;
+class ABlasterCharacter;
+class ABlasterPlayerController;
 UENUM(BlueprintType)
 enum class EWeaponState : uint8
 {
@@ -29,7 +31,9 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	void ShowPickupWidget(bool bShowWidget);
 	virtual void Fire(const FVector& HitTarget);
+	void SetHUDAmmo();
 	void Dropped();
+	virtual void OnRep_Owner() override;
 	UPROPERTY(EditAnywhere, Category = Combat)
 	float FireDelay = .15f;
 
@@ -78,6 +82,23 @@ private:
 	UPROPERTY(EditAnywhere)
 	TSubclassOf<class ACasing> CasingClass;
 
+	UPROPERTY(EditAnywhere)
+	int32 MagCapacity;
+
+	UPROPERTY( EditAnywhere,ReplicatedUsing=OnRep_Ammo)
+	int32 Ammo;
+
+	UFUNCTION()
+	void OnRep_Ammo();
+
+	UFUNCTION()
+	void SpendRound();
+
+	UPROPERTY()
+	ABlasterCharacter* BlasterCharacterOwner;
+	UPROPERTY()
+	ABlasterPlayerController* BlasterControllerOwner;
+
 
 public:
 	// 准星五方向纹理，CombactComponent 每帧读取并打包传给 HUD 绘制
@@ -105,4 +126,5 @@ public:
 	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() const {return WeaponMesh;}
 	FORCEINLINE float GetZoomedFOV() const { return ZoomedFOV; }
 	FORCEINLINE float GetZoomInterpSpeed() const { return ZoomInterpSpeed; }
+	FORCEINLINE bool IsEmpty() const { return Ammo <= 0; }
 };
