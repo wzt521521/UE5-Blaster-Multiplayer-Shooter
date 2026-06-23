@@ -60,15 +60,25 @@ void UCombatComponent::EquipWeapon(AWeapon *WeaponToEquip)//此函数从始至�
 
 void UCombatComponent::Reload()
 {
-	if(CarriedAmmo>0){
+	if(CarriedAmmo>0&&CombatState!=ECombatState::ECS_Reloading){
 		ServerReload();
 	}
 }
 
-void UCombatComponent::ServerReload_Implementation()
+void UCombatComponent::FinishReloading()
+{
+	if(Character==NULL)return;
+	if(Character->HasAuthority()){
+		CombatState = ECombatState::ECS_Unoccupied;
+	}
+	
+}
+
+void UCombatComponent::ServerReload_Implementation()//只会在服务器执行
 {
 	if(Character == NULL) return;
-	Character->PlayReloadMontage();
+	HandReload();
+	CombatState = ECombatState::ECS_Reloading;
 }
 
 void UCombatComponent::SetAiming(bool bIsAiming)
@@ -393,6 +403,7 @@ void UCombatComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &Out
 	DOREPLIFETIME(UCombatComponent, EquippedWeapon);
 	DOREPLIFETIME(UCombatComponent, bAiming);
 	DOREPLIFETIME_CONDITION(UCombatComponent, CarriedAmmo,COND_OwnerOnly);
+	DOREPLIFETIME(UCombatComponent, CombatState);
 }
 
 void UCombatComponent::OnRep_CarriedAmmo()
@@ -408,4 +419,18 @@ void UCombatComponent::InitializeCarriedAmmo()
 {
 	CarriedAmmoMap.Emplace(EWeaponType::EWT_AssaultRifle, StartingARAmmo);
 	CarriedAmmoMap.Emplace(EWeaponType::EWT_SubmachineGun, StartingSMGAmmo);
+}
+
+void UCombatComponent::OnRep_CombatState()
+{
+	if(Character == NULL) return;
+	switch(CombatState){
+		case ECombatState::ECS_Reloading:
+			HandReload();
+			break;
+	}
+}
+void  UCombatComponent::HandReload()
+{
+	Character->PlayReloadMontage();
 }

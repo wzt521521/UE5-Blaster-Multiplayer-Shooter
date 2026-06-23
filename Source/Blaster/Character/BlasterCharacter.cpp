@@ -128,15 +128,13 @@ void ABlasterCharacter::PlayReloadMontage()
 		FName SectionName;
 		switch(Combat->EquippedWeapon->GetReloadType()){
 			case EWeaponType::EWT_AssaultRifle:
-				SectionName = FName("Rifle"); 
+				SectionName = FName("Rifle");
 				break;
-			// case EWeaponType::EWT_SubmachineGun:
-			// 	SectionName = FName("SMGAmmo");
-			// 	break;
-			// default:
-			// 	SectionName = FName("ARAmmo");
-			// 	break;
+			default:
+				SectionName = FName("Rifle");
+				break;
 		}
+		AnimInstance->Montage_JumpToSection(SectionName);
 	}
 }
 
@@ -527,6 +525,12 @@ AWeapon* ABlasterCharacter::GetEquippedWeapon() const
 {
 	if (Combat == nullptr) return nullptr;
 	return Combat->EquippedWeapon;
+}
+
+ECombatState ABlasterCharacter::GetCombatState() const
+{
+	if (Combat == nullptr) return ECombatState::ECS_Unoccupied;
+	return Combat->CombatState;
 }
 
 bool ABlasterCharacter::IsAiming()

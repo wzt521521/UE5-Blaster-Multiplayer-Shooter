@@ -6,6 +6,7 @@
 #include "Blaster/BlasterTypes/TurningInPlace.h"
 #include "Blaster/Interafaces/InteractWithCrosshairsInterface.h"
 #include "GameFramework/Character.h"
+#include "Blaster/BlasterTypes/CombatState.h"
 #include "BlasterCharacter.generated.h"
 class ABlasterPlayerController;
 class ABlasterPlayerState;
@@ -85,7 +86,7 @@ private:
 	// 然后引擎会自动追踪旧值并在复制发生时传给你的 OnRep_OverlappingWeapon。
 	UFUNCTION()
 	void OnRep_OverlappingWeapon(AWeapon* LastWeapon);//被复制时才会调用的函数，服务器永远不会被复制，所以服务器永远不会调用
-	UPROPERTY(VisibleAnywhere, Category = "Combat")
+	UPROPERTY(VisibleAnywhere, Category = "Combat",BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UCombatComponent* Combat;
 
 	UFUNCTION(Server, Reliable)
@@ -147,4 +148,5 @@ public:
 	FORCEINLINE float GetHealth() const { return Health; }
 	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
 	// ↑ 供 BlasterPlayerController::OnPossess 拉取血量，复活时重置 HUD 血条用
+	ECombatState GetCombatState() const;
 };
