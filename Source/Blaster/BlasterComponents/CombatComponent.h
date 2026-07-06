@@ -59,6 +59,7 @@ public:
 	void Reload();
 	UFUNCTION(BlueprintCallable)
 	void FinishReloading();
+	void ReloadEmptyWeapon();
 
 protected:
 	
@@ -74,6 +75,7 @@ protected:
 	UFUNCTION()
 	void OnRep_EquippedWeapon();
 
+	void PlayEquipWeaponSound(AWeapon* WeaponToEquip);
 	void FireButtonPressed(bool bPressed);
 	void Fire();
 	void LocalFire(const FVector_NetQuantize& TraceHitTarget);
