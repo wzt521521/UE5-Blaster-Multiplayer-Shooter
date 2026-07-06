@@ -35,6 +35,7 @@ public:
 	virtual void Fire(const FVector& HitTarget);
 	void SetHUDAmmo();
 	void Dropped();
+	void AddAmmo(int32 AmmoToAdd);
 	virtual void OnRep_Owner() override;
 	UPROPERTY(EditAnywhere, Category = Combat)
 	float FireDelay = .15f;

@@ -71,12 +71,27 @@ void UCombatComponent::FinishReloading()
 	if(Character->HasAuthority()){
 		CombatState = ECombatState::ECS_Unoccupied;
 	}
+	if(bFireButtonPressed){
+		Fire();
+	}
 	
 }
 
 void UCombatComponent::ServerReload_Implementation()//只会在服务器执行
 {
-	if(Character == NULL) return;
+	if(Character == NULL||EquippedWeapon==NULL) return;
+	int32 ReloadAmount = AmountToReload();
+	if(CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType())){
+		CarriedAmmoMap[EquippedWeapon->GetWeaponType()]-=ReloadAmount;
+		CarriedAmmo = CarriedAmmoMap[EquippedWeapon->GetWeaponType()];
+	}
+	Controller = Controller == NULL ? Cast<ABlasterPlayerController>(Character->Controller) : Controller;
+	if(Controller)
+	{
+		Controller->SetHUDCarriedAmmo(EquippedWeapon->GetAmmo());
+	}
+
+	EquippedWeapon->AddAmmo(-ReloadAmount);
 	HandReload();
 	CombatState = ECombatState::ECS_Reloading;
 }
@@ -145,7 +160,6 @@ void UCombatComponent::LocalFire(const FVector_NetQuantize& TraceHitTarget)
 	if (EquippedWeapon == nullptr) return;
 	if (Character)
 	{
-
 		//只在本地玩家的客户端上面播放开火动画和特效，不实际生成子弹
 		Character->PlayFireMontage(bAiming);
 		EquippedWeapon->Fire(TraceHitTarget);
@@ -176,7 +190,7 @@ void UCombatComponent::FireTimerFinished()
 bool UCombatComponent::CanFire()
 {
 	if (EquippedWeapon == nullptr) return false;
-	return !EquippedWeapon->IsEmpty() && bCanFire;
+	return !EquippedWeapon->IsEmpty() && bCanFire&&CombatState==ECombatState::ECS_Unoccupied;
 }
 
 //从屏幕正中心的准星位置，向 3D 世界里射出一根长达 800 米的"激光指针"，
@@ -433,4 +447,16 @@ void UCombatComponent::OnRep_CombatState()
 void  UCombatComponent::HandReload()
 {
 	Character->PlayReloadMontage();
+}
+
+int32 UCombatComponent::AmountToReload()
+{
+	if (EquippedWeapon == nullptr) return 0;
+	int32 RoomInMag = EquippedWeapon->GetMagCapacity() - EquippedWeapon->GetAmmo();
+	if(CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType())){
+		int32 AmountCarried = CarriedAmmoMap[EquippedWeapon->GetWeaponType()];
+		int32 Least = FMath::Min(RoomInMag, AmountCarried);
+		return FMath::Clamp(RoomInMag, 0, Least);
+	}
+    return 0;
 }

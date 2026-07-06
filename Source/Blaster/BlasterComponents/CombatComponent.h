@@ -70,6 +70,7 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerReload();
 	void HandReload();
+	int32 AmountToReload();
 	UFUNCTION()
 	void OnRep_EquippedWeapon();
 
