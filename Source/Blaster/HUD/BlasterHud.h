@@ -41,8 +41,17 @@ public:
 	TSubclassOf<class UUserWidget> CharacterOverlayClass;
 
 	class UCharacteroverlay* CharacterOverlay;
-private:
+
+	UPROPERTY(EditAnywhere, Category="Announcements")
+	TSubclassOf<UUserWidget> AnnouncementClass;
+
+	UPROPERTY()
+	class UAnnouncement* Announcement;
+
+	void AddAnnouncement();
 	void AddCharacterOverlay();
+
+private:
 
 	FHUDPackage HUDPackage;
 

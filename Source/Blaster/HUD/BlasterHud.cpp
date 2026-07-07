@@ -3,6 +3,7 @@
 
 #include "BlasterHud.h"
 #include "Characteroverlay.h"
+#include "Announcement.h"
 #include "GameFramework/PlayerController.h"
 void ABlasterHud::DrawHUD()
 {
@@ -79,21 +80,24 @@ void ABlasterHud::DrawCrosshair(UTexture2D *Texture, FVector2D ViewportCenter,FV
 void ABlasterHud::BeginPlay()
 {
 	Super::BeginPlay();
-	AddCharacterOverlay();
 }
 
 void ABlasterHud::AddCharacterOverlay()
 {
-	// 获取当前 HUD 所属的 PlayerController
 	APlayerController* PlayerController = GetOwningPlayerController();
-
-	// 用编辑器配置的 CharacterOverlayClass 蓝图作为模具，创建 Widget 实例
 	if (PlayerController && CharacterOverlayClass)
 	{
-		// CreateWidget 相当于"用模具生产一个实例"——这里不涉及网络，纯本地操作
-		// 服务器上的 HUD 会创建一份，每个客户端上的 HUD 也会各自创建一份
-		// 所以 CharacterOverlay 不需要复制——它本来就每个端都有
 		CharacterOverlay = CreateWidget<UCharacteroverlay>(PlayerController, CharacterOverlayClass);
 		CharacterOverlay->AddToViewport();
+	}
+}
+
+void ABlasterHud::AddAnnouncement()
+{
+	APlayerController* PlayerController = GetOwningPlayerController();
+	if (PlayerController && AnnouncementClass)
+	{
+		Announcement = CreateWidget<UAnnouncement>(PlayerController, AnnouncementClass);
+		Announcement->AddToViewport();
 	}
 }

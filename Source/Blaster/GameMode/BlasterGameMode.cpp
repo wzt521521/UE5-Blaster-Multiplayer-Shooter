@@ -7,43 +7,101 @@
 #include "Blaster/PlayerState/BlasterPlayerState.h"
 #include "Blaster/PlayerController/BlasterPlayerController.h"
 #include "GameFramework/PlayerStart.h"
-void ABlasterGameMode::PlayEliminated(ABlasterCharacter *EliminatedCharacter, ABlasterPlayerController *VictimController, ABlasterPlayerController *AttackerController)
+
+namespace MatchState
 {
-    if (AttackerController == nullptr || AttackerController->PlayerState == nullptr) return;
-    if (VictimController == nullptr || VictimController->PlayerState == nullptr) return;
-
-    ABlasterPlayerState* AttackerPlayerState = AttackerController ? Cast<ABlasterPlayerState>(AttackerController->PlayerState) : nullptr;
-    ABlasterPlayerState* VictimPlayerState = VictimController ? Cast<ABlasterPlayerState>(VictimController->PlayerState) : nullptr;
-
-    if(AttackerPlayerState&&AttackerPlayerState!=VictimPlayerState)
-    {
-        AttackerPlayerState->AddToScore(1.f);
-    }
-    if (VictimPlayerState)
-    {
-        VictimPlayerState->AddToDefeats(1);
-    }
-    if (EliminatedCharacter)
-    {
-        EliminatedCharacter->Elim();//死亡角色播放死亡动画
-    }
+	const FName Cooldown = FName("Cooldown");
 }
 
-void ABlasterGameMode::RequestRespawn(ACharacter *EliminatedCharacter, AController *EliminatedController)
+ABlasterGameMode::ABlasterGameMode()
 {
-    // ① 清理旧尸体——被淘汰的角色 Actor 已播完死亡动画，现在从世界移除
-    if (EliminatedCharacter)
-    {
-        EliminatedCharacter->Reset();       // 把 Actor 属性恢复到 CDO 默认值，防止残留状态带到下次复活
-        EliminatedCharacter->Destroy();     // 销毁旧角色（会触发 Destroyed 回调做清理）
-    }
+	bDelayedStart = true;
+}
 
-    // ② 随机复活点——从地图上所有 PlayerStart 中随机选一个，让玩家重新出生
-    if (EliminatedController)
-    {
-        TArray<AActor*> PlayerStarts;                                            // 存放地图上所有出生点
-        UGameplayStatics::GetAllActorsOfClass(this, APlayerStart::StaticClass(), PlayerStarts);  // 遍历地图收集 PlayerStart
-        int32 Selection = FMath::RandRange(0, PlayerStarts.Num() - 1);          // 随机选一个出生点索引
-        RestartPlayerAtPlayerStart(EliminatedController, PlayerStarts[Selection]);  // 在选中的出生点创建新角色
-    }
+void ABlasterGameMode::BeginPlay()
+{
+	Super::BeginPlay();
+	LevelStartingTime = GetWorld()->GetTimeSeconds();
+}
+
+void ABlasterGameMode::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	if (MatchState == MatchState::WaitingToStart)
+	{
+		CountdownTime = WarmupTime - GetWorld()->GetTimeSeconds() + LevelStartingTime;
+		if (CountdownTime <= 0.f)
+		{
+			StartMatch();
+		}
+	}
+	else if (MatchState == MatchState::InProgress)
+	{
+		CountdownTime = WarmupTime + MatchTime - GetWorld()->GetTimeSeconds() + LevelStartingTime;
+		if (CountdownTime <= 0.f)
+		{
+			SetMatchState(MatchState::Cooldown);
+		}
+	}
+	else if (MatchState == MatchState::Cooldown)
+	{
+		CountdownTime = CooldownTime + WarmupTime + MatchTime - GetWorld()->GetTimeSeconds() + LevelStartingTime;
+		if (CountdownTime <= 0.f)
+		{
+			RestartGame();
+		}
+	}
+}
+
+void ABlasterGameMode::OnMatchStateSet()
+{
+	Super::OnMatchStateSet();
+
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		ABlasterPlayerController* BlasterPlayer = Cast<ABlasterPlayerController>(*It);
+		if (BlasterPlayer)
+		{
+			BlasterPlayer->OnMatchStateSet(MatchState, false);
+		}
+	}
+}
+
+void ABlasterGameMode::PlayerEliminated(ABlasterCharacter* EliminatedCharacter, ABlasterPlayerController* VictimController, ABlasterPlayerController* AttackerController)
+{
+	if (AttackerController == nullptr || AttackerController->PlayerState == nullptr) return;
+	if (VictimController == nullptr || VictimController->PlayerState == nullptr) return;
+
+	ABlasterPlayerState* AttackerPlayerState = AttackerController ? Cast<ABlasterPlayerState>(AttackerController->PlayerState) : nullptr;
+	ABlasterPlayerState* VictimPlayerState = VictimController ? Cast<ABlasterPlayerState>(VictimController->PlayerState) : nullptr;
+
+	if (AttackerPlayerState && AttackerPlayerState != VictimPlayerState)
+	{
+		AttackerPlayerState->AddToScore(1.f);
+	}
+	if (VictimPlayerState)
+	{
+		VictimPlayerState->AddToDefeats(1);
+	}
+	if (EliminatedCharacter)
+	{
+		EliminatedCharacter->Elim();
+	}
+}
+
+void ABlasterGameMode::RequestRespawn(ACharacter* EliminatedCharacter, AController* EliminatedController)
+{
+	if (EliminatedCharacter)
+	{
+		EliminatedCharacter->Reset();
+		EliminatedCharacter->Destroy();
+	}
+	if (EliminatedController)
+	{
+		TArray<AActor*> PlayerStarts;
+		UGameplayStatics::GetAllActorsOfClass(this, APlayerStart::StaticClass(), PlayerStarts);
+		int32 Selection = FMath::RandRange(0, PlayerStarts.Num() - 1);
+		RestartPlayerAtPlayerStart(EliminatedController, PlayerStarts[Selection]);
+	}
 }
