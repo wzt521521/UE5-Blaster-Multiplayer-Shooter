@@ -28,6 +28,7 @@ void ABlasterGameMode::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	// 等待开始 → 倒计时结束则开始比赛
 	if (MatchState == MatchState::WaitingToStart)
 	{
 		CountdownTime = WarmupTime - GetWorld()->GetTimeSeconds() + LevelStartingTime;
@@ -36,6 +37,7 @@ void ABlasterGameMode::Tick(float DeltaTime)
 			StartMatch();
 		}
 	}
+	// 比赛进行中 → 倒计时结束则进入冷却阶段
 	else if (MatchState == MatchState::InProgress)
 	{
 		CountdownTime = WarmupTime + MatchTime - GetWorld()->GetTimeSeconds() + LevelStartingTime;
@@ -44,6 +46,7 @@ void ABlasterGameMode::Tick(float DeltaTime)
 			SetMatchState(MatchState::Cooldown);
 		}
 	}
+	// 冷却阶段 → 倒计时结束则重启游戏
 	else if (MatchState == MatchState::Cooldown)
 	{
 		CountdownTime = CooldownTime + WarmupTime + MatchTime - GetWorld()->GetTimeSeconds() + LevelStartingTime;

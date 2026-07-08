@@ -18,6 +18,8 @@ void ABlasterPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 	BlasterHud = Cast<ABlasterHud>(GetHUD());
+	//应该添加annocuncement
+	//announcement已经通过ServerCheckMatchState()由客户端独自添加
 	ServerCheckMatchState();
 }
 
@@ -150,6 +152,11 @@ void ABlasterPlayerController::SetHUDMatchCountdown(float CountdownTime)
 void ABlasterPlayerController::SetHUDAnnouncementCountdown(float CountdownTime)
 {
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	// 兜底：如果 Announcement 还未创建（ClientJoinMidgame 时 HUD 可能未就绪），在这里补创建
+	if (BlasterHud && BlasterHud->Announcement == nullptr)
+	{
+		BlasterHud->AddAnnouncement();
+	}
 	bool bHUDValid = BlasterHud &&
 		BlasterHud->Announcement &&
 		BlasterHud->Announcement->WarmupTime;
@@ -215,16 +222,23 @@ void ABlasterPlayerController::ReceivedPlayer()
 // ------------------------------------------------------------
 // 比赛状态：服务端检测状态发给客户端，客户端同步 Warmup/Match/Cooldown 时间
 // ------------------------------------------------------------
-void ABlasterPlayerController::ServerCheckMatchState_Implementation()
+// ------------------------------------------------------------
+// 比赛状态同步：客户端 BeginPlay 时通过 RPC 向服务器请求当前比赛状态，
+// 服务器从 GameMode 读取 Warmup/Match/Cooldown 时长和当前 MatchState，
+// 再通过 ClientJoinMidgame RPC 发回客户端，驱动 HUD 初始化
+// ------------------------------------------------------------
+void ABlasterPlayerController::ServerCheckMatchState_Implementation()//客户端向服务器请求比赛状态，服务器从 GameMode 读取配置发回客户端
 {
+	// 从 GameMode 获取比赛配置和当前状态（GameMode 仅存在于服务器）
 	ABlasterGameMode* GameMode = Cast<ABlasterGameMode>(UGameplayStatics::GetGameMode(this));
 	if (GameMode)
 	{
-		WarmupTime = GameMode->WarmupTime;
-		MatchTime = GameMode->MatchTime;
-		CooldownTime = GameMode->CooldownTime;
-		LevelStartingTime = GameMode->LevelStartingTime;
-		MatchState = GameMode->GetMatchState();
+		WarmupTime = GameMode->WarmupTime;           // 热身阶段时长（默认10秒）
+		MatchTime = GameMode->MatchTime;             // 比赛阶段时长（默认120秒）
+		CooldownTime = GameMode->CooldownTime;       // 冷却阶段时长（默认10秒）
+		LevelStartingTime = GameMode->LevelStartingTime; // 关卡开始的时间戳，用于计算剩余倒计时
+		MatchState = GameMode->GetMatchState();      // 当前比赛状态（WaitingToStart/InProgress/Cooldown）
+		// 将状态和时间打包发回客户端，客户端据此决定显示 Announcement 还是 CharacterOverlay
 		ClientJoinMidgame(MatchState, WarmupTime, MatchTime, CooldownTime, LevelStartingTime);
 	}
 }
@@ -237,13 +251,14 @@ void ABlasterPlayerController::ClientJoinMidgame_Implementation(FName StateOfMat
 	LevelStartingTime = StartingTime;
 	MatchState = StateOfMatch;
 	OnMatchStateSet(MatchState);
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
 	if (BlasterHud && MatchState == MatchState::WaitingToStart)
 	{
 		BlasterHud->AddAnnouncement();
 	}
 }
 
-void ABlasterPlayerController::OnMatchStateSet(FName State, bool bTeamsMatch)
+void ABlasterPlayerController::OnMatchStateSet(FName State, bool bTeamsMatch)//负责初始化玩家状态
 {
 	MatchState = State;
 
@@ -257,7 +272,7 @@ void ABlasterPlayerController::OnMatchStateSet(FName State, bool bTeamsMatch)
 	}
 }
 
-void ABlasterPlayerController::OnRep_MatchState()
+void ABlasterPlayerController::OnRep_MatchState()//负责同步玩家状态，与OnMatchStateSet配合，一个负责初始化，一个负责后续同步
 {
 	if (MatchState == MatchState::InProgress)
 	{
@@ -274,7 +289,7 @@ void ABlasterPlayerController::HandleMatchHasStarted(bool bTeamsMatch)
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
 	if (BlasterHud)
 	{
-		if (BlasterHud->CharacterOverlay == nullptr) BlasterHud->AddCharacterOverlay();
+		if (BlasterHud->CharacterOverlay == nullptr) BlasterHud->AddCharacterOverlay();//显示战斗ui
 		if (BlasterHud->Announcement)
 		{
 			BlasterHud->Announcement->SetVisibility(ESlateVisibility::Hidden);
@@ -374,7 +389,7 @@ void ABlasterPlayerController::SetHUDTime()
 	CountdownInt = SecondsLeft;
 }
 
-void ABlasterPlayerController::PollInit()
+void ABlasterPlayerController::PollInit()//推送缓存数据
 {
 	if (CharacterOverlay == nullptr)
 	{

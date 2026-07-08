@@ -37,14 +37,19 @@ public:
 	virtual void DrawHUD() override;
 	virtual void BeginPlay() override;
 
+	// 角色HUD蓝图类（血条/弹药/准星等），蓝图中配置，运行时由AddCharacterOverlay()实例化
 	UPROPERTY(EditAnywhere, Category="Player HUD")
 	TSubclassOf<class UUserWidget> CharacterOverlayClass;
 
+	// 角色HUD运行时实例指针，AddCharacterOverlay()创建后赋值，HandleCooldown()中RemoveFromParent移除
+	UPROPERTY()
 	class UCharacteroverlay* CharacterOverlay;
 
+	// 公告面板蓝图类（等待玩家/比赛结束等提示），蓝图中配置，运行时由AddAnnouncement()实例化
 	UPROPERTY(EditAnywhere, Category="Announcements")
 	TSubclassOf<UUserWidget> AnnouncementClass;
 
+	// 公告面板运行时实例指针，AddAnnouncement()创建后赋值，用于切换显示/隐藏和更新文本
 	UPROPERTY()
 	class UAnnouncement* Announcement;
 
