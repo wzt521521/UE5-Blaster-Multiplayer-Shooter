@@ -52,6 +52,13 @@ void ABlasterGameMode::Tick(float DeltaTime)
 		CountdownTime = CooldownTime + WarmupTime + MatchTime - GetWorld()->GetTimeSeconds() + LevelStartingTime;
 		if (CountdownTime <= 0.f)
 		{
+			// 先切到 LeavingMap，防止后续 Tick 重复进入本分支
+			//（RestartGame 的 ServerTravel 是异步的，不先改状态会导致死循环）
+			SetMatchState(MatchState::LeavingMap);
+			if (GEngine)
+			{
+				GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("冷却结束，重启游戏"));
+			}
 			RestartGame();
 		}
 	}

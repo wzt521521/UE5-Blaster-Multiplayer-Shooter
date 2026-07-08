@@ -2,5 +2,5 @@
 
 namespace Announcement
 {
-	const FString NewMatchStartsIn(TEXT("New match starts in:"));
+	const FString NewMatchStartsIn(TEXT("新比赛即将开始:"));
 }
