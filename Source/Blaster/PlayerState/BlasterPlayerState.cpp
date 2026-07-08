@@ -4,6 +4,7 @@
 #include "BlasterPlayerState.h"
 #include "Blaster/Character/BlasterCharacter.h"
 #include "Blaster/PlayerController/BlasterPlayerController.h"
+#include "Blaster/GameState/BlasterGameState.h"
 #include "Net/UnrealNetwork.h"
 
 void ABlasterPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -20,6 +21,12 @@ void ABlasterPlayerState::AddToScore(float ScoreAmount)
     // 修改后自动同步到所有客户端，同时把新分数推到 HUD
     // ————————————————————————————————————————————
     SetScore(GetScore() + ScoreAmount);
+
+    // 每次分数变动后更新 GameState 的最高分排行榜，确保冷却阶段能正确显示胜者
+    if (ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>())
+    {
+        GS->UpdateTopScore(this);
+    }
 
     // 懒加载缓存：第一次调用时从 Pawn → Controller 拿到引用，后续复用
     Character = Character == NULL ? Cast<ABlasterCharacter>(GetPawn()) : Character;

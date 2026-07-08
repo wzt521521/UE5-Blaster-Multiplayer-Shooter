@@ -11,6 +11,7 @@
 #include "Net/UnrealNetwork.h"
 #include "Blaster/GameMode/BlasterGameMode.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
+#include "Blaster/GameState/BlasterGameState.h"
 #include "Blaster/BlasterTypes/Announcement.h"
 #include "Kismet/GameplayStatics.h"
 
@@ -316,7 +317,11 @@ void ABlasterPlayerController::HandleCooldown()
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
 	if (BlasterHud)
 	{
-		BlasterHud->CharacterOverlay->RemoveFromParent();
+		// 比赛结束，移除战斗 HUD（如果存在），显示公告面板
+		if (BlasterHud->CharacterOverlay)
+		{
+			BlasterHud->CharacterOverlay->RemoveFromParent();
+		}
 		bool bHUDValid = BlasterHud->Announcement &&
 			BlasterHud->Announcement->AnnouncementText &&
 			BlasterHud->Announcement->InfoText;
@@ -327,12 +332,11 @@ void ABlasterPlayerController::HandleCooldown()
 			FString AnnouncementText = Announcement::NewMatchStartsIn;
 			BlasterHud->Announcement->AnnouncementText->SetText(FText::FromString(AnnouncementText));
 
-			ABlasterPlayerState* BlasterPlayerState = GetPlayerState<ABlasterPlayerState>();
-			if (BlasterPlayerState)
+			// 从 GameState 读取服务器维护的 TopScoringPlayers，确保所有客户端显示一致的胜者
+			ABlasterGameState* BlasterGameState = GetWorld()->GetGameState<ABlasterGameState>();
+			if (BlasterGameState && BlasterGameState->TopScoringPlayers.Num() > 0)
 			{
-				TArray<ABlasterPlayerState*> TopPlayers;
-				TopPlayers.Add(BlasterPlayerState);
-				FString InfoTextString = GetInfoText(TopPlayers);
+				FString InfoTextString = GetInfoText(BlasterGameState->TopScoringPlayers);
 				BlasterHud->Announcement->InfoText->SetText(FText::FromString(InfoTextString));
 			}
 		}

@@ -15,7 +15,7 @@ namespace MatchState
 
 ABlasterGameMode::ABlasterGameMode()
 {
-	bDelayedStart = true;
+	bDelayedStart = true;//获得控制器，但是推迟角色的生成
 }
 
 void ABlasterGameMode::BeginPlay()
@@ -34,7 +34,7 @@ void ABlasterGameMode::Tick(float DeltaTime)
 		CountdownTime = WarmupTime - GetWorld()->GetTimeSeconds() + LevelStartingTime;
 		if (CountdownTime <= 0.f)
 		{
-			StartMatch();
+			StartMatch();//生成角色，进入比赛
 		}
 	}
 	// 比赛进行中 → 倒计时结束则进入冷却阶段
