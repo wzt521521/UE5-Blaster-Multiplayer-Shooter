@@ -10,42 +10,72 @@ UCLASS()
 class BLASTER_API AProjectile : public AActor
 {
 	GENERATED_BODY()
-	
-public:	
 
+public:
 	AProjectile();
 	virtual void Tick(float DeltaTime) override;
 	virtual void Destroyed() override;
-protected:
 
+protected:
 	virtual void BeginPlay() override;
 
+	// 径向伤害爆炸（火箭/榴弹使用，仅服务器执行）
+	void ExplodeDamage();
+
+	// 延迟销毁：碰到目标后不立刻 Destroy，而是等 DestroyTime 秒后再销毁
+	void StartDestroyTimer();
+	void DestroyTimerFinished();
+
+	// 生成尾迹粒子（火箭飞行拖尾）
+	void SpawnTrailSystem();
+
+	// 碰撞回调（服务器+客户端均可绑定，子类重写实现不同行为）
 	UFUNCTION()
-	virtual void OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, 
+	virtual void OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp,
 		FVector NormalImpulse, const FHitResult& Hit);
-		//HitComp 是你自己的碰撞体，OtherActor/OtherComp 是被你撞到的目标，NormalImpulse 是碰撞冲击力，Hit 是所有细节的合集。
-private:
+
+	// ===== 组件 =====
 	UPROPERTY(EditAnywhere)
 	class UBoxComponent* CollisionBox;
 
 	UPROPERTY(VisibleAnywhere)
 	class UProjectileMovementComponent* ProjectileMovementComponent;
 
-	UPROPERTY(EditAnywhere)
-	class UParticleSystem* Tracer;
+	UPROPERTY(VisibleAnywhere)
+	class UStaticMeshComponent* ProjectileMesh;
 
-	class UParticleSystemComponent* TracerComponent;
-	
+	// ===== 粒子/音效 =====
 	UPROPERTY(EditAnywhere)
-	UParticleSystem* ImpactParticles;//子弹命中时播放的粒子特效
+	class UParticleSystem* ImpactParticles;
 
 	UPROPERTY(EditAnywhere)
-	class USoundCue* ImpactSound;//子弹命中时播放的音效
-protected:
+	class USoundCue* ImpactSound;
+
+	UPROPERTY(EditAnywhere)
+	class UParticleSystem* TrailSystem;
+
+	UPROPERTY()
+	class UParticleSystemComponent* TrailSystemComponent;
+
+	// ===== 伤害 =====
 	UPROPERTY(EditAnywhere)
 	float Damage = 20.f;
-public:	
 
+	UPROPERTY(EditAnywhere)
+	float DamageInnerRadius = 200.f;
 
+	UPROPERTY(EditAnywhere)
+	float DamageOuterRadius = 500.f;
 
+private:
+	UPROPERTY(EditAnywhere)
+	UParticleSystem* Tracer;
+
+	UPROPERTY()
+	class UParticleSystemComponent* TracerComponent;
+
+	UPROPERTY(EditAnywhere)
+	float DestroyTime = 3.f;
+
+	FTimerHandle DestroyTimer;
 };

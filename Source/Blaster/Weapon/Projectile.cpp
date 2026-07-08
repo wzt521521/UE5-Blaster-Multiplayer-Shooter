@@ -1,4 +1,4 @@
-
+// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "Projectile.h"
@@ -10,10 +10,12 @@
 #include "Sound/SoundCue.h"
 #include "Blaster/Character/BlasterCharacter.h"
 #include "Blaster/Blaster.h"
+
 AProjectile::AProjectile()
 {
-	bReplicates = true;//启用复制
+	bReplicates = true;
 	PrimaryActorTick.bCanEverTick = true;
+
 	CollisionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("CollisionBox"));
 	CollisionBox->SetupAttachment(RootComponent);
 	CollisionBox->SetCollisionObjectType(ECollisionChannel::ECC_WorldDynamic);
@@ -22,50 +24,112 @@ AProjectile::AProjectile()
 	CollisionBox->SetCollisionResponseToChannel(ECollisionChannel::ECC_Visibility, ECollisionResponse::ECR_Block);
 	CollisionBox->SetCollisionResponseToChannel(ECollisionChannel::ECC_WorldStatic, ECollisionResponse::ECR_Block);
 	CollisionBox->SetCollisionResponseToChannel(ECC_SkeletalMesh, ECollisionResponse::ECR_Block);
-	ProjectileMovementComponent = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("ProjectileMovementComponent"));
-	ProjectileMovementComponent->bRotationFollowsVelocity = true;
-	
+
+	// ProjectileMovementComponent 由子类创建（Bullet→标准版，Rocket→RocketMovementComponent）
 }
 
 
 void AProjectile::BeginPlay()
 {
 	Super::BeginPlay();
-	if(Tracer)
+
+	if (Tracer)
 	{
-		//生成一个粒子特效，作为弹道轨迹
-		TracerComponent = UGameplayStatics::SpawnEmitterAttached(Tracer, CollisionBox, FName(),
-		 GetActorLocation(), GetActorRotation(), EAttachLocation::KeepWorldPosition);
+		TracerComponent = UGameplayStatics::SpawnEmitterAttached(
+			Tracer,
+			CollisionBox,
+			FName(),
+			GetActorLocation(),
+			GetActorRotation(),
+			EAttachLocation::KeepWorldPosition
+		);
 	}
-	if(HasAuthority())//只有服务器才绑定碰撞事件
+
+	if (HasAuthority())
 	{
 		CollisionBox->OnComponentHit.AddDynamic(this, &AProjectile::OnHit);
 	}
-
 }
 
-//OnHit只会在服务器上执行，因为只有服务器才绑定了碰撞事件
-void AProjectile::OnHit(UPrimitiveComponent *HitComp, AActor *OtherActor, UPrimitiveComponent *OtherComp, FVector NormalImpulse, const FHitResult &Hit)
+// 默认碰撞处理：直接销毁（子弹行为）；火箭/榴弹需要重写
+void AProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp,
+	FVector NormalImpulse, const FHitResult& Hit)
 {
-	Destroy();//ue检测到被标记为待销毁的Actor，然后自动销毁，由于bReplicates=true，销毁会被自动复制到其他玩家
+	Destroy();
+}
+
+// 生成尾迹粒子（Cascade 粒子系统），供火箭子类调用
+void AProjectile::SpawnTrailSystem()
+{
+	if (TrailSystem)
+	{
+		TrailSystemComponent = UGameplayStatics::SpawnEmitterAttached(
+			TrailSystem,
+			GetRootComponent(),
+			FName(),
+			GetActorLocation(),
+			GetActorRotation(),
+			EAttachLocation::KeepWorldPosition
+		);
+	}
+}
+
+// 径向伤害爆炸：仅服务器执行
+void AProjectile::ExplodeDamage()
+{
+	APawn* FiringPawn = GetInstigator();
+	if (FiringPawn && HasAuthority())
+	{
+		AController* FiringController = FiringPawn->GetController();
+		if (FiringController)
+		{
+			UGameplayStatics::ApplyRadialDamageWithFalloff(
+				this,                   // World context
+				Damage,                 // BaseDamage
+				10.f,                   // MinimumDamage
+				GetActorLocation(),     // Origin
+				DamageInnerRadius,      // DamageInnerRadius
+				DamageOuterRadius,      // DamageOuterRadius
+				1.f,                    // DamageFalloff
+				UDamageType::StaticClass(),
+				TArray<AActor*>(),      // IgnoreActors
+				this,                   // DamageCauser
+				FiringController       // InstigatorController
+			);
+		}
+	}
 }
 
 void AProjectile::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-
 }
 
+// 启动延迟销毁计时器
+void AProjectile::StartDestroyTimer()
+{
+	GetWorldTimerManager().SetTimer(
+		DestroyTimer,
+		this,
+		&AProjectile::DestroyTimerFinished,
+		DestroyTime
+	);
+}
 
-//这个本身
+void AProjectile::DestroyTimerFinished()
+{
+	Destroy();
+}
+
 void AProjectile::Destroyed()
 {
 	Super::Destroyed();
-	if(ImpactParticles)
+
+	if (ImpactParticles)
 	{
 		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), ImpactParticles, GetActorTransform());
 	}
-	if(ImpactSound)
+	if (ImpactSound)
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, ImpactSound, GetActorLocation());
 	}
