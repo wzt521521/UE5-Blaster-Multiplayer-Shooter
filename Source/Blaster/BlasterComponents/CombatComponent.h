@@ -78,6 +78,8 @@ protected:
 	void PlayEquipWeaponSound(AWeapon* WeaponToEquip);
 	void FireButtonPressed(bool bPressed);
 	void Fire();
+	void FireProjectileWeapon();
+	void FireHitScanWeapon();
 	void LocalFire(const FVector_NetQuantize& TraceHitTarget);
 	void StartFireTimer();
 	void FireTimerFinished();
@@ -106,6 +108,12 @@ protected:
 
 	UPROPERTY(EditAnywhere)
 	int32 StartingRocketAmmo=6;
+
+	UPROPERTY(EditAnywhere)
+	int32 StartingPistolAmmo=30;
+
+	UPROPERTY(EditAnywhere)
+	int32 StartingSniperAmmo=10;
 
 	//仓库
 	TMap<EWeaponType, int32> CarriedAmmoMap;

@@ -20,6 +20,16 @@ enum class EWeaponState : uint8
 	EWS_MAX UMETA(DisplayName = "DefaultMAX")
 };
 
+UENUM(BlueprintType)
+enum class EFireType : uint8
+{
+	EFT_HitScan UMETA(DisplayName = "Hit Scan Weapon"),
+	EFT_Projectile UMETA(DisplayName = "Projectile Weapon"),
+	EFT_Shotgun UMETA(DisplayName = "Shotgun Weapon"),
+
+	EFT_MAX UMETA(DisplayName = "DefaultMAX")
+};
+
 
 UCLASS()
 class BLASTER_API AWeapon : public AActor
@@ -44,8 +54,14 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat)
 	bool bAutomatic = true;
 
+	UPROPERTY(EditAnywhere, Category = Combat)
+	bool bUseScatter = false;
+
 	UPROPERTY(EditAnywhere)
 	class USoundCue* EquipSound;
+
+	UPROPERTY(EditAnywhere)
+	EFireType FireType;
 
 protected:
 	
@@ -67,6 +83,23 @@ protected:
 		UPrimitiveComponent* OtherComp,
 		int32 OtherBodyIndex
 	);
+
+	UPROPERTY(EditAnywhere, Category = "Weapon Scatter")
+	float DistanceToSphere = 800.f;
+
+	UPROPERTY(EditAnywhere, Category = "Weapon Scatter")
+	float SphereRadius = 75.f;
+
+	UPROPERTY(EditAnywhere)
+	float Damage = 20.f;
+
+	UPROPERTY(EditAnywhere)
+	float HeadShotDamage = 40.f;
+
+	UPROPERTY()
+	ABlasterCharacter* BlasterCharacterOwner;
+	UPROPERTY()
+	ABlasterPlayerController* BlasterControllerOwner;
 
 private:
 	UPROPERTY(VisibleAnywhere, Category = "Weapon Properties")
@@ -101,10 +134,6 @@ private:
 	UFUNCTION()
 	void SpendRound();
 
-	UPROPERTY()
-	ABlasterCharacter* BlasterCharacterOwner;
-	UPROPERTY()
-	ABlasterPlayerController* BlasterControllerOwner;
 	UPROPERTY(EditAnywhere, Category = "Weapon Properties")
 	EWeaponType WeaponType;
 
@@ -140,4 +169,8 @@ public:
 	FORCEINLINE EWeaponType GetReloadType() const { return WeaponType; }
 	FORCEINLINE int32 GetAmmo() const { return Ammo; }
 	FORCEINLINE int32 GetMagCapacity() const { return MagCapacity; }
+	FORCEINLINE float GetDamage() const { return Damage; }
+	FORCEINLINE float GetHeadShotDamage() const { return HeadShotDamage; }
+
+	FVector TraceEndWithScatter(const FVector& HitTarget);
 };

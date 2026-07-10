@@ -11,6 +11,7 @@
 #include "Blaster/PlayerController/BlasterPlayerController.h"
 #include "Net/UnrealNetwork.h"
 #include "Casing.h"
+#include "Kismet/KismetMathLibrary.h"
 
 AWeapon::AWeapon()
 {
@@ -120,12 +121,16 @@ void AWeapon::OnRep_Owner()
 	Super::OnRep_Owner();
 	if(Owner==NULL){
 		BlasterCharacterOwner = nullptr;
-		BlasterCharacterOwner = nullptr;
+		BlasterControllerOwner = nullptr;
 	}
 	else{
-		SetHUDAmmo();
+		BlasterCharacterOwner = BlasterCharacterOwner == nullptr ? Cast<ABlasterCharacter>(Owner) : BlasterCharacterOwner;
+		if(BlasterCharacterOwner && BlasterCharacterOwner->GetEquippedWeapon() && BlasterCharacterOwner->GetEquippedWeapon() == this)
+		{
+			SetHUDAmmo();
+		}
 	}
-	
+
 }
 
 
@@ -225,4 +230,22 @@ void AWeapon::AddAmmo(int32 AmmoToAdd)
 {
 	Ammo = FMath::Clamp(Ammo - AmmoToAdd, 0, MagCapacity);
 	SetHUDAmmo();
+}
+
+FVector AWeapon::TraceEndWithScatter(const FVector& HitTarget)
+{
+	const USkeletalMeshSocket* MuzzleFlashSocket = GetWeaponMesh()->GetSocketByName("MuzzleFlash");
+	if (MuzzleFlashSocket == nullptr) return HitTarget;
+
+	FTransform SocketTransform = MuzzleFlashSocket->GetSocketTransform(GetWeaponMesh());
+	FVector TraceStart = SocketTransform.GetLocation();
+
+	FVector ToTargetNormalized = (HitTarget - TraceStart).GetSafeNormal();
+	FVector SphereCenter = TraceStart + ToTargetNormalized * DistanceToSphere;
+	FVector RandVec = UKismetMathLibrary::RandomUnitVector() * SphereRadius;
+	FVector EndLoc = SphereCenter + RandVec;
+	FVector ToEndLoc = EndLoc - TraceStart;
+	FVector Result = FVector(TraceStart + ToEndLoc * TRACE_LENGTH / ToEndLoc.Size());
+
+	return Result;
 }
