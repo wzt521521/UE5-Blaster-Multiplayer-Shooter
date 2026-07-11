@@ -258,7 +258,7 @@ void ABlasterPlayerController::ClientJoinMidgame_Implementation(FName StateOfMat
 	}
 	// 根据当前实际的 MatchState 初始化 UI（而非 RPC 参数中的可能过时状态）
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (BlasterHud && MatchState == MatchState::WaitingToStart)
+	if (BlasterHud && MatchState == MatchState::WaitingToStart && BlasterHud->Announcement == nullptr)
 	{
 		BlasterHud->AddAnnouncement();
 	}

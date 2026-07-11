@@ -94,6 +94,9 @@ void ABlasterHud::AddCharacterOverlay()
 
 void ABlasterHud::AddAnnouncement()
 {
+	// 防御：已存在则跳过，避免 CreateWidget 生成新实例后旧的泄漏在 Viewport 中
+	if (Announcement) return;
+
 	APlayerController* PlayerController = GetOwningPlayerController();
 	if (PlayerController && AnnouncementClass)
 	{
