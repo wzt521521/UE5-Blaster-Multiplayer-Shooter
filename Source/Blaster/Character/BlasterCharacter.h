@@ -25,13 +25,17 @@ public:
 	virtual void PostInitializeComponents() override;//在这个函数中访问combat组件
 	void PlayFireMontage(bool bAiming);
 	void PlayReloadMontage();
-	void PlayHitReactMontage(); 
+	void PlayHitReactMontage();
 	void PlayElimMontage();
+	void PlayThrowGrenadeMontage();
 
 	void Elim();
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastElim();
+
+	UFUNCTION(BlueprintImplementableEvent)
+	void ShowSniperScopeWidget(bool bShowScope);
 
 	ABlasterPlayerState* BlasterPlayerState;
 
@@ -52,6 +56,7 @@ protected:
 	virtual void Jump() override;
 	void FireButtonPressed();
 	void FireButtonReleased();
+	void GrenadeButtonPressed();
 	UFUNCTION()
 	void ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, 
 		AController* InstigatorController, AActor* DamageCauser);
@@ -111,6 +116,9 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	UAnimMontage* ReloadMontage;
 
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	UAnimMontage* ThrowGrenadeMontage;
+
 	void HideCameraIfCharacterClose();
 
 	UPROPERTY(EditAnywhere, Category = "Camera")
@@ -133,6 +141,9 @@ private:
 	float ElimDelay = 3.f;
 
 	void ElimTimerFinsished();
+
+	UPROPERTY(VisibleAnywhere)
+	UStaticMeshComponent* AttachedGrenade;
 public:
 	void SetOverlappingWeapon(AWeapon* Weapon) ;
 
@@ -149,4 +160,7 @@ public:
 	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
 	// ↑ 供 BlasterPlayerController::OnPossess 拉取血量，复活时重置 HUD 血条用
 	ECombatState GetCombatState() const;
+	FORCEINLINE class UCombatComponent* GetCombat() const { return Combat; }
+	FORCEINLINE UAnimMontage* GetReloadMontage() const { return ReloadMontage; }
+	FORCEINLINE UStaticMeshComponent* GetAttachedGrenade() const { return AttachedGrenade; }
 };

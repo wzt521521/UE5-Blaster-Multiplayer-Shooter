@@ -41,6 +41,10 @@ ABlasterCharacter::ABlasterCharacter()
 	Combat= CreateDefaultSubobject<UCombatComponent>(TEXT("CombatComponent"));
 	Combat->SetIsReplicated(true);
 
+	AttachedGrenade = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("AttachedGrenade"));
+	AttachedGrenade->SetupAttachment(GetMesh(), FName("GrenadeSocket"));
+	AttachedGrenade->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
 	GetMesh()->SetCollisionObjectType(ECC_SkeletalMesh);
@@ -69,6 +73,10 @@ void ABlasterCharacter::BeginPlay()
 	if(HasAuthority()){
 		OnTakeAnyDamage.AddDynamic(this,&ABlasterCharacter::ReceiveDamage);
 	}
+	if (AttachedGrenade)
+	{
+		AttachedGrenade->SetVisibility(false);
+	}
 }
 
 void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -91,6 +99,8 @@ void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	PlayerInputComponent->BindAction("Fire", IE_Released, this, &ABlasterCharacter::FireButtonReleased);
 
 	PlayerInputComponent->BindAction("Reload", IE_Pressed, this, &ABlasterCharacter::ReloadButtonPressed);
+
+	PlayerInputComponent->BindAction("ThrowGrenade", IE_Pressed, this, &ABlasterCharacter::GrenadeButtonPressed);
 }
 
 void ABlasterCharacter::PostInitializeComponents()
@@ -134,6 +144,12 @@ void ABlasterCharacter::PlayReloadMontage()
 			case EWeaponType::EWT_SubmachineGun:
 				SectionName = FName("Pistol");
 				break;
+			case EWeaponType::EWT_SniperRifle:
+				SectionName = FName("SniperRifle");
+				break;
+			case EWeaponType::EWT_GrenadeLauncher:
+				SectionName = FName("GrenadeLauncher");
+				break;
 			default:
 				SectionName = FName("Rifle");
 				break;
@@ -163,6 +179,15 @@ void ABlasterCharacter::PlayElimMontage()//只负责播放动画
 	}
 }
 
+void ABlasterCharacter::PlayThrowGrenadeMontage()
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && ThrowGrenadeMontage)
+	{
+		AnimInstance->Montage_Play(ThrowGrenadeMontage);
+	}
+}
+
 void ABlasterCharacter::Elim()
 {
 	// 掉落武器
@@ -187,6 +212,12 @@ void ABlasterCharacter::MulticastElim_Implementation()//MulticastElim只负责�
 	}
 	bElimmed = true;
 	PlayElimMontage();
+
+	// 死亡时关闭狙击镜 Scope Widget
+	if (IsLocallyControlled() && Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponType() == EWeaponType::EWT_SniperRifle)
+	{
+		ShowSniperScopeWidget(false);
+	}
 
 	//禁用碰撞
 	GetCharacterMovement()->DisableMovement();
@@ -369,6 +400,14 @@ void ABlasterCharacter::FireButtonReleased()
 	if(Combat)
 	{
 		Combat->FireButtonPressed(false);
+	}
+}
+
+void ABlasterCharacter::GrenadeButtonPressed()
+{
+	if (Combat)
+	{
+		Combat->ThrowGrenade();
 	}
 }
 
