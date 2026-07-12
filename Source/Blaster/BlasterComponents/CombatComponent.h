@@ -61,21 +61,6 @@ public:
 	void FinishReloading();
 	void ReloadEmptyWeapon();
 
-	UFUNCTION(BlueprintCallable)
-	void ShotgunShellReload();
-
-	void JumpToShotgunEnd();
-
-	void ThrowGrenade();
-
-	UFUNCTION(BlueprintCallable)
-	void ThrowGrenadeFinished();
-
-	UFUNCTION(BlueprintCallable)
-	void LaunchGrenade();
-
-	FORCEINLINE int32 GetGrenades() const { return Grenades; }
-
 protected:
 	
 	virtual void BeginPlay() override;
@@ -157,19 +142,6 @@ protected:
 
 	void SetHUDCrosshairs(float DeltaTime);
 
-	UFUNCTION(Server, Reliable)
-	void ServerThrowGrenade();
-
-	UFUNCTION(Server, Reliable)
-	void ServerLaunchGrenade(const FVector_NetQuantize& Target);
-
-	void ShowAttachedGrenade(bool bShowGrenade);
-	void AttachActorToRightHand(AActor* ActorToAttach);
-	void AttachActorToLeftHand(AActor* ActorToAttach);
-
-	UPROPERTY(EditAnywhere)
-	TSubclassOf<class AProjectile> GrenadeClass;
-	
 private:
 	ABlasterCharacter* Character;//指向拥有这个组件的角色的指针
 
@@ -200,7 +172,6 @@ private:
 	FTimerHandle FireTimer;
 	bool bCanFire = true;
 	bool bLocallyReloading = false;
-	void UpdateShotgunAmmoValues();
 
 	// 根据角色移动速度计算的散布因子（0=静止，1=全速奔跑）
 	float CrosshairVelocityFactor;
@@ -220,14 +191,4 @@ private:
 	// 每帧根据 bAiming 状态平滑切换相机视野（开镜/收镜）
 	void InterpFOV(float DeltaTime);
 
-	UPROPERTY(ReplicatedUsing = OnRep_Grenades)
-	int32 Grenades = 4;
-
-	UFUNCTION()
-	void OnRep_Grenades();
-
-	UPROPERTY(EditAnywhere)
-	int32 MaxGrenades = 4;
-
-	void UpdateHUDGrenades();
 };

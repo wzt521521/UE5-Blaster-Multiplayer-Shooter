@@ -8,7 +8,6 @@
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
 #include "Blaster/Character/BlasterCharacter.h"
-#include "Blaster/BlasterComponents/CombatComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Blaster/GameMode/BlasterGameMode.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
@@ -148,24 +147,6 @@ void ABlasterPlayerController::SetHUDMatchCountdown(float CountdownTime)
 	{
 		bInitializeMatchCountdown = true;
 		HUDMatchCountdown = CountdownTime;
-	}
-}
-
-void ABlasterPlayerController::SetHUDGrenades(int32 Grenades)
-{
-	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	bool bHUDValid = BlasterHud &&
-		BlasterHud->CharacterOverlay &&
-		BlasterHud->CharacterOverlay->GrenadesText;
-	if (bHUDValid)
-	{
-		FString GrenadesText = FString::Printf(TEXT("%d"), Grenades);
-		BlasterHud->CharacterOverlay->GrenadesText->SetText(FText::FromString(GrenadesText));
-	}
-	else
-	{
-		bInitializeGrenades = true;
-		HUDGrenades = Grenades;
 	}
 }
 
@@ -457,11 +438,5 @@ void ABlasterPlayerController::PollInit()//推送缓存数据
 				if (bInitializeMatchCountdown) SetHUDMatchCountdown(HUDMatchCountdown);
 			}
 		}
-	}
-	// 手雷 HUD 延迟初始化（CombatComponent 可能较晚绑定）
-	ABlasterCharacter* BlasterCharacter = Cast<ABlasterCharacter>(GetPawn());
-	if (BlasterCharacter && BlasterCharacter->GetCombat())
-	{
-		if (bInitializeGrenades) SetHUDGrenades(BlasterCharacter->GetCombat()->GetGrenades());
 	}
 }

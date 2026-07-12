@@ -60,6 +60,8 @@ public:
 	UPROPERTY(EditAnywhere)
 	class USoundCue* EquipSound;
 
+	void EnableCustomDepth(bool bEnable);
+
 	UPROPERTY(EditAnywhere)
 	EFireType FireType;
 

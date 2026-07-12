@@ -27,7 +27,6 @@ public:
 	void PlayReloadMontage();
 	void PlayHitReactMontage();
 	void PlayElimMontage();
-	void PlayThrowGrenadeMontage();
 
 	void Elim();
 
@@ -56,7 +55,6 @@ protected:
 	virtual void Jump() override;
 	void FireButtonPressed();
 	void FireButtonReleased();
-	void GrenadeButtonPressed();
 	UFUNCTION()
 	void ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, 
 		AController* InstigatorController, AActor* DamageCauser);
@@ -116,9 +114,6 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	UAnimMontage* ReloadMontage;
 
-	UPROPERTY(EditAnywhere, Category = "Combat")
-	UAnimMontage* ThrowGrenadeMontage;
-
 	void HideCameraIfCharacterClose();
 
 	UPROPERTY(EditAnywhere, Category = "Camera")
@@ -142,8 +137,6 @@ private:
 
 	void ElimTimerFinsished();
 
-	UPROPERTY(VisibleAnywhere)
-	UStaticMeshComponent* AttachedGrenade;
 public:
 	void SetOverlappingWeapon(AWeapon* Weapon) ;
 
@@ -162,5 +155,4 @@ public:
 	ECombatState GetCombatState() const;
 	FORCEINLINE class UCombatComponent* GetCombat() const { return Combat; }
 	FORCEINLINE UAnimMontage* GetReloadMontage() const { return ReloadMontage; }
-	FORCEINLINE UStaticMeshComponent* GetAttachedGrenade() const { return AttachedGrenade; }
 };

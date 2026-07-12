@@ -20,7 +20,6 @@ public:
 	void SetHUDCarriedAmmo(int32 Ammo);
 	void SetHUDMatchCountdown(float CountdownTime);
 	void SetHUDAnnouncementCountdown(float CountdownTime);
-	void SetHUDGrenades(int32 Grenades);
 	virtual void OnPossess(APawn* InPawn) override;
 	virtual void Tick(float DeltaTime) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
@@ -88,8 +87,6 @@ private:
 	bool bInitializeDefeats = false;
 	float HUDMatchCountdown;
 	bool bInitializeMatchCountdown = false;
-	int32 HUDGrenades;
-	bool bInitializeGrenades = false;
 
 	FString GetInfoText(const TArray<class ABlasterPlayerState*>& Players);
 };

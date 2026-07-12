@@ -41,10 +41,6 @@ ABlasterCharacter::ABlasterCharacter()
 	Combat= CreateDefaultSubobject<UCombatComponent>(TEXT("CombatComponent"));
 	Combat->SetIsReplicated(true);
 
-	AttachedGrenade = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("AttachedGrenade"));
-	AttachedGrenade->SetupAttachment(GetMesh(), FName("GrenadeSocket"));
-	AttachedGrenade->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
 	GetMesh()->SetCollisionObjectType(ECC_SkeletalMesh);
@@ -73,10 +69,6 @@ void ABlasterCharacter::BeginPlay()
 	if(HasAuthority()){
 		OnTakeAnyDamage.AddDynamic(this,&ABlasterCharacter::ReceiveDamage);
 	}
-	if (AttachedGrenade)
-	{
-		AttachedGrenade->SetVisibility(false);
-	}
 }
 
 void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -99,8 +91,6 @@ void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	PlayerInputComponent->BindAction("Fire", IE_Released, this, &ABlasterCharacter::FireButtonReleased);
 
 	PlayerInputComponent->BindAction("Reload", IE_Pressed, this, &ABlasterCharacter::ReloadButtonPressed);
-
-	PlayerInputComponent->BindAction("ThrowGrenade", IE_Pressed, this, &ABlasterCharacter::GrenadeButtonPressed);
 }
 
 void ABlasterCharacter::PostInitializeComponents()
@@ -176,15 +166,6 @@ void ABlasterCharacter::PlayElimMontage()//只负责播放动画
 	if(AnimInstance && ElimMontage)
 	{
 		AnimInstance->Montage_Play(ElimMontage);
-	}
-}
-
-void ABlasterCharacter::PlayThrowGrenadeMontage()
-{
-	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (AnimInstance && ThrowGrenadeMontage)
-	{
-		AnimInstance->Montage_Play(ThrowGrenadeMontage);
 	}
 }
 
@@ -400,14 +381,6 @@ void ABlasterCharacter::FireButtonReleased()
 	if(Combat)
 	{
 		Combat->FireButtonPressed(false);
-	}
-}
-
-void ABlasterCharacter::GrenadeButtonPressed()
-{
-	if (Combat)
-	{
-		Combat->ThrowGrenade();
 	}
 }
 
