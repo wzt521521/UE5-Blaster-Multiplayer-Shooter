@@ -162,7 +162,7 @@ void ABlasterCharacter::PlayReloadMontage()
 
 void ABlasterCharacter::PlayHitReactMontage()
 {
-	if(Combat==NULL||Combat->EquippedWeapon==NULL)return;
+	if(Combat == NULL) return; // 受击动画不应要求武器——重生后未拾取武器时也需要播放
 	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
 	if(AnimInstance && HitReactMontage)
 	{
