@@ -8,6 +8,7 @@
 #include "Net/UnrealNetwork.h"
 #include "../Weapon/Weapon.h"
 #include "../BlasterComponents/CombatComponent.h"
+#include "Blaster/BlasterComponents/BuffComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Blaster/Blaster.h"
 #include "Kismet/KismetMathLibrary.h"
@@ -40,6 +41,9 @@ ABlasterCharacter::ABlasterCharacter()
 
 	Combat= CreateDefaultSubobject<UCombatComponent>(TEXT("CombatComponent"));
 	Combat->SetIsReplicated(true);
+
+	Buff = CreateDefaultSubobject<UBuffComponent>(TEXT("BuffComponent"));
+	Buff->SetIsReplicated(true);
 
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
@@ -100,6 +104,13 @@ void ABlasterCharacter::PostInitializeComponents()
 	if(Combat)
 	{
 		Combat->Character = this;//让Combat组件知道它所属的角色是谁
+	}
+
+	// 记录角色原始移动属性，Buff 到期后恢复
+	if (Buff && GetCharacterMovement())
+	{
+		Buff->SetInitialSpeeds(GetCharacterMovement()->MaxWalkSpeed, GetCharacterMovement()->MaxWalkSpeedCrouched);
+		Buff->SetInitialJumpVelocity(GetCharacterMovement()->JumpZVelocity);
 	}
 }
 

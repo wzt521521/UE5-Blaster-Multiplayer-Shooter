@@ -92,6 +92,9 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "Combat",BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UCombatComponent* Combat;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
+	class UBuffComponent* Buff;
+
 	UFUNCTION(Server, Reliable)
 	void ServerEquipWeapon(AWeapon* WeaponToEquip);
 	float AO_Pitch;
@@ -155,5 +158,6 @@ public:
 	// ↑ 供 BlasterPlayerController::OnPossess 拉取血量，复活时重置 HUD 血条用
 	ECombatState GetCombatState() const;
 	FORCEINLINE class UCombatComponent* GetCombat() const { return Combat; }
+	FORCEINLINE class UBuffComponent* GetBuff() const { return Buff; }
 	FORCEINLINE UAnimMontage* GetReloadMontage() const { return ReloadMontage; }
 };
