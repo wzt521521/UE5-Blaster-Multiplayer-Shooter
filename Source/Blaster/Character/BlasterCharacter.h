@@ -139,6 +139,7 @@ private:
 
 public:
 	void SetOverlappingWeapon(AWeapon* Weapon) ;
+	void Heal(float HealAmount);
 
 	bool IsWeaponEquipped();
 	bool IsAiming();

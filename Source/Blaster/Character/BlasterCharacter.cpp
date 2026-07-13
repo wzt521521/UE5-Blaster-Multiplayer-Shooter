@@ -514,6 +514,13 @@ void ABlasterCharacter::OnRep_Health()
 	PlayHitReactMontage();
 }
 
+void ABlasterCharacter::Heal(float HealAmount)
+{
+	// 仅服务器修改复制属性 Health，客户端通过 OnRep_Health 更新 HUD
+	if (!HasAuthority()) return;
+	Health = FMath::Clamp(Health + HealAmount, 0.f, MaxHealth);
+	UpdateHUDHealth();
+}
 
 void ABlasterCharacter::SetOverlappingWeapon(AWeapon *Weapon)
 {

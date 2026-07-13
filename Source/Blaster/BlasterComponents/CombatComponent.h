@@ -60,6 +60,7 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void FinishReloading();
 	void ReloadEmptyWeapon();
+	void PickupAmmo(EWeaponType WeaponType, int32 AmmoAmount);
 
 protected:
 	
@@ -172,6 +173,11 @@ private:
 	FTimerHandle FireTimer;
 	bool bCanFire = true;
 	bool bLocallyReloading = false;
+
+	UPROPERTY(EditAnywhere)
+	int32 MaxCarriedAmmo = 500;
+
+	void UpdateCarriedAmmo();
 
 	// 根据角色移动速度计算的散布因子（0=静止，1=全速奔跑）
 	float CrosshairVelocityFactor;
