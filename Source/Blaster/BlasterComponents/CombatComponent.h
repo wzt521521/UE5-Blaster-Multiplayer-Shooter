@@ -76,6 +76,9 @@ protected:
 	UFUNCTION()
 	void OnRep_EquippedWeapon();
 
+	UFUNCTION()
+	void OnRep_SecondaryWeapon();
+
 	void PlayEquipWeaponSound(AWeapon* WeaponToEquip);
 	void FireButtonPressed(bool bPressed);
 	void Fire();
@@ -87,6 +90,22 @@ protected:
 	void StartFireTimer();
 	void FireTimerFinished();
 	bool CanFire();
+
+	void SwapWeapons();
+	bool ShouldSwapWeapons();
+
+	UFUNCTION(BlueprintCallable)
+	void FinishSwap();
+
+	UFUNCTION(BlueprintCallable)
+	void FinishSwapAttachWeapons();
+
+	void DropEquippedWeapon();
+	void AttachActorToRightHand(AActor* ActorToAttach);
+	void AttachActorToLeftHand(AActor* ActorToAttach);
+	void AttachActorToBackpack(AActor* ActorToAttach);
+	void EquipPrimaryWeapon(AWeapon* WeaponToEquip);
+	void EquipSecondaryWeapon(AWeapon* WeaponToEquip);
 
 	//当前武器携带的子弹
 	UPROPERTY(ReplicatedUsing = OnRep_CarriedAmmo)
@@ -150,7 +169,10 @@ private:
 	ABlasterHud* HUD;
 
 	UPROPERTY(ReplicatedUsing = OnRep_EquippedWeapon)
-	AWeapon* EquippedWeapon;//存储当前装备武器的变量
+	AWeapon* EquippedWeapon;
+
+	UPROPERTY(ReplicatedUsing = OnRep_SecondaryWeapon)
+	AWeapon* SecondaryWeapon;
 
 	UPROPERTY(Replicated)//会被复制
 	bool bAiming;

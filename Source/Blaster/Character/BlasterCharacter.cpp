@@ -183,11 +183,8 @@ void ABlasterCharacter::PlayElimMontage()//只负责播放动画
 
 void ABlasterCharacter::Elim()
 {
-	// 掉落武器
-	if(Combat&&Combat->EquippedWeapon)
-	{
-		Combat->EquippedWeapon->Dropped();
-	}
+	// 掉落所有武器
+	DropOrDestroyWeapons();
 	MulticastElim();
 	// 延迟后自动回调 ElimTimerFinished，给死亡动画留出播放时间
 	GetWorldTimerManager().SetTimer(
@@ -282,12 +279,18 @@ void ABlasterCharacter::LookUp(float Value)
 
 void ABlasterCharacter::EquipButtonPressed()
 {
-	if(Combat)//只有服务器才处理装备逻辑，必须在服务器上执行
+	if (Combat)
 	{
-		if(HasAuthority())//服务器主机玩家直接装备
-		Combat->EquipWeapon(OverlappingWeapon);
-		else{//客户端玩家向服务器发送装备请求
-			ServerEquipWeapon(OverlappingWeapon);
+		if (Combat->CombatState == ECombatState::ECS_Unoccupied) ServerEquipButtonPressed();
+		bool bSwap = Combat->ShouldSwapWeapons() &&
+			!HasAuthority() &&
+			Combat->CombatState == ECombatState::ECS_Unoccupied &&
+			OverlappingWeapon == nullptr;
+		if (bSwap)
+		{
+			PlaySwapMontage();
+			Combat->CombatState = ECombatState::ECS_SwappingWeapons;
+			bFinishedSwapping = false;
 		}
 	}
 }
@@ -445,10 +448,14 @@ void ABlasterCharacter::UpdateHUDHealth()
 
 void ABlasterCharacter::PollInit()
 {
-	if(BlasterPlayerController==NULL){
-		BlasterPlayerState = GetPlayerState<ABlasterPlayerState>();
-		if(BlasterPlayerState){
-			BlasterPlayerState->AddToScore(0.f);
+	if (BlasterPlayerController == nullptr)
+	{
+		BlasterPlayerController = BlasterPlayerController == nullptr ? Cast<ABlasterPlayerController>(Controller) : BlasterPlayerController;
+		if (BlasterPlayerController)
+		{
+			SpawDefaultWeapon();
+			UpdateHUDHealth();
+			UpdateHUDShield();
 		}
 	}
 }
@@ -467,11 +474,18 @@ void ABlasterCharacter::OnRep_OverlappingWeapon(AWeapon* LastWeapon)//参数自�
 	}
 }
 
-void ABlasterCharacter::ServerEquipWeapon_Implementation(AWeapon *WeaponToEquip)
+void ABlasterCharacter::ServerEquipButtonPressed_Implementation()
 {
-	if(Combat)
+	if (Combat)
 	{
-		Combat->EquipWeapon(WeaponToEquip);
+		if (OverlappingWeapon)
+		{
+			Combat->EquipWeapon(OverlappingWeapon);
+		}
+		else if (Combat->ShouldSwapWeapons())
+		{
+			Combat->SwapWeapons();
+		}
 	}
 }
 
@@ -522,9 +536,10 @@ void ABlasterCharacter::HideCameraIfCharacterClose()
 		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
 		{
 			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = true;
-			// 武器用 bOwnerNoSee 而非 SetVisibility(false)：
-			//   因为武器是独立的 Actor，对 OWNER 隐藏可以让本地玩家看不到武器，
-			//   同时其他玩家（在多人游戏中）依然能看到该玩家的武器——他们不会经历穿模
+		}
+		if (Combat && Combat->SecondaryWeapon && Combat->SecondaryWeapon->GetWeaponMesh())
+		{
+			Combat->SecondaryWeapon->GetWeaponMesh()->bOwnerNoSee = true;
 		}
 	}
 	else
@@ -535,6 +550,10 @@ void ABlasterCharacter::HideCameraIfCharacterClose()
 		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
 		{
 			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = false;
+		}
+		if (Combat && Combat->SecondaryWeapon && Combat->SecondaryWeapon->GetWeaponMesh())
+		{
+			Combat->SecondaryWeapon->GetWeaponMesh()->bOwnerNoSee = false;
 		}
 	}
 }
@@ -617,4 +636,56 @@ FVector ABlasterCharacter::GetHitTarget() const
 	if(Combat==NULL)
     return FVector();
 	return Combat->HitTarget;
+}
+
+void ABlasterCharacter::SpawDefaultWeapon()
+{
+	ABlasterGameMode* BlasterGameMode = GetWorld()->GetAuthGameMode<ABlasterGameMode>();
+	UWorld* World = GetWorld();
+	if (BlasterGameMode && World && !bElimmed && DefaultWeaponClass)
+	{
+		AWeapon* StartingWeapon = World->SpawnActor<AWeapon>(DefaultWeaponClass);
+		StartingWeapon->bDestroyWeapon = true;
+		if (Combat)
+		{
+			Combat->EquipWeapon(StartingWeapon);
+		}
+	}
+}
+
+void ABlasterCharacter::PlaySwapMontage()
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && SwapMontage)
+	{
+		AnimInstance->Montage_Play(SwapMontage);
+	}
+}
+
+void ABlasterCharacter::DropOrDestroyWeapon(AWeapon* Weapon)
+{
+	if (Weapon == nullptr) return;
+	if (Weapon->bDestroyWeapon)
+	{
+		Weapon->Destroy();
+	}
+	else
+	{
+		Weapon->Dropped();
+	}
+}
+
+void ABlasterCharacter::DropOrDestroyWeapons()
+{
+	if (Combat)
+	{
+		if (Combat->EquippedWeapon)
+		{
+			DropOrDestroyWeapon(Combat->EquippedWeapon);
+		}
+		if (Combat->SecondaryWeapon)
+		{
+			DropOrDestroyWeapon(Combat->SecondaryWeapon);
+		}
+	}
 }

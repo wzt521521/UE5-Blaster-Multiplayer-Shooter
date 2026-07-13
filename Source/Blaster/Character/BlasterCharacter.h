@@ -28,7 +28,14 @@ public:
 	void PlayHitReactMontage();
 	void PlayElimMontage();
 
+	void PlaySwapMontage();
+
 	void Elim();
+
+	void DropOrDestroyWeapon(AWeapon* Weapon);
+	void DropOrDestroyWeapons();
+
+	void SpawDefaultWeapon();
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastElim();
@@ -96,7 +103,7 @@ private:
 	class UBuffComponent* Buff;
 
 	UFUNCTION(Server, Reliable)
-	void ServerEquipWeapon(AWeapon* WeaponToEquip);
+	void ServerEquipButtonPressed();
 	float AO_Pitch;
 	float AO_Yaw;
 	float InterpAO_Yaw;
@@ -116,6 +123,9 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	UAnimMontage* ReloadMontage;
+
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	UAnimMontage* SwapMontage;
 
 	void HideCameraIfCharacterClose();
 
@@ -147,6 +157,11 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "Player Stats")
 	float ElimDelay = 3.f;
 
+	UPROPERTY(EditAnywhere)
+	TSubclassOf<AWeapon> DefaultWeaponClass;
+
+bool bRotateRootBone = false;
+
 	void ElimTimerFinsished();
 
 public:
@@ -173,4 +188,7 @@ public:
 	FORCEINLINE class UCombatComponent* GetCombat() const { return Combat; }
 	FORCEINLINE class UBuffComponent* GetBuff() const { return Buff; }
 	FORCEINLINE UAnimMontage* GetReloadMontage() const { return ReloadMontage; }
+	FORCEINLINE bool ShouldRotateRootBone() const { return bRotateRootBone; }
+
+	bool bFinishedSwapping = false;
 };
