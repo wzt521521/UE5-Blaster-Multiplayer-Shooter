@@ -124,11 +124,20 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "Player Stats")
 	float MaxHealth = 100.f;
-	UPROPERTY(ReplicatedUsing=OnRep_Health)
+	UPROPERTY(ReplicatedUsing=OnRep_Health, EditAnywhere, Category = "Player Stats")
 	float Health = 100.f;
 
 	UFUNCTION()
 	void OnRep_Health();
+
+	// 护盾：默认 0，受伤时先吸收伤害，通过 ShieldPickup 获取
+	UPROPERTY(EditAnywhere, Category = "Player Stats")
+	float MaxShield = 100.f;
+	UPROPERTY(ReplicatedUsing=OnRep_Shield, EditAnywhere, Category = "Player Stats")
+	float Shield = 0.f;
+
+	UFUNCTION()
+	void OnRep_Shield(float LastShield);
 
 	ABlasterPlayerController* BlasterPlayerController;
 
@@ -143,6 +152,7 @@ private:
 public:
 	void SetOverlappingWeapon(AWeapon* Weapon) ;
 	void Heal(float HealAmount);
+	void UpdateHUDShield();
 
 	bool IsWeaponEquipped();
 	bool IsAiming();
@@ -156,6 +166,9 @@ public:
 	FORCEINLINE float GetHealth() const { return Health; }
 	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
 	// ↑ 供 BlasterPlayerController::OnPossess 拉取血量，复活时重置 HUD 血条用
+	FORCEINLINE float GetShield() const { return Shield; }
+	FORCEINLINE void SetShield(float Amount) { Shield = Amount; }
+	FORCEINLINE float GetMaxShield() const { return MaxShield; }
 	ECombatState GetCombatState() const;
 	FORCEINLINE class UCombatComponent* GetCombat() const { return Combat; }
 	FORCEINLINE class UBuffComponent* GetBuff() const { return Buff; }

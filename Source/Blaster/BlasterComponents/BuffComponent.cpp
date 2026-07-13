@@ -4,7 +4,8 @@
 
 UBuffComponent::UBuffComponent()
 {
-	PrimaryComponentTick.bCanEverTick = false;
+	// 开启 Tick：护盾 ramp-up 需要每帧递增
+	PrimaryComponentTick.bCanEverTick = true;
 }
 
 void UBuffComponent::BeginPlay()
@@ -12,6 +13,14 @@ void UBuffComponent::BeginPlay()
 	Super::BeginPlay();
 	// 缓存角色引用，避免每次 Cast 的开销
 	Character = Cast<ABlasterCharacter>(GetOwner());
+}
+
+void UBuffComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	// 每帧驱动护盾平滑递增
+	ShieldRampUp(DeltaTime);
 }
 
 void UBuffComponent::SetInitialSpeeds(float BaseSpeed, float CrouchSpeed)
@@ -29,19 +38,16 @@ void UBuffComponent::BuffSpeed(float BuffBaseSpeed, float BuffCrouchSpeed, float
 {
 	if (Character == nullptr || Character->GetCharacterMovement() == nullptr) return;
 
-	// 清除旧 Timer，避免重复 Buff 时旧 Timer 提前恢复
 	if (GetWorld()->GetTimerManager().IsTimerActive(SpeedBuffTimer))
 	{
 		GetWorld()->GetTimerManager().ClearTimer(SpeedBuffTimer);
 	}
 
-	// 服务器本地立刻生效，Multicast RPC 推送到所有客户端
 	Character->GetCharacterMovement()->MaxWalkSpeed = BuffBaseSpeed;
 	Character->GetCharacterMovement()->MaxWalkSpeedCrouched = BuffCrouchSpeed;
 
 	MulticastSpeedBuff(BuffBaseSpeed, BuffCrouchSpeed);
 
-	// 启动 Timer，到期自动恢复原始值
 	GetWorld()->GetTimerManager().SetTimer(
 		SpeedBuffTimer,
 		this,
@@ -74,7 +80,6 @@ void UBuffComponent::ResetSpeeds()
 {
 	if (Character == nullptr || Character->GetCharacterMovement() == nullptr) return;
 
-	// 恢复到拾取 Buff 前记录的原始速度
 	Character->GetCharacterMovement()->MaxWalkSpeed = InitialBaseSpeed;
 	Character->GetCharacterMovement()->MaxWalkSpeedCrouched = InitialCrouchSpeed;
 
@@ -87,6 +92,39 @@ void UBuffComponent::ResetJump()
 
 	Character->GetCharacterMovement()->JumpZVelocity = InitialJumpVelocity;
 	MulticastJumpBuff(InitialJumpVelocity);
+}
+
+// ——————————————————————————————————————————————————————
+// Shield 护盾系统
+// 拾取后不是瞬间加盾，而是 Tick 每帧递增（平滑 ramp-up）
+// 多次拾取可叠加：ShieldReplenishAmount 累加
+// ——————————————————————————————————————————————————————
+void UBuffComponent::ReplenishShield(float ShieldAmount, float ReplenishTime)
+{
+	bReplenishingShield = true;
+	ShieldReplenishRate = ShieldAmount / ReplenishTime; // 计算每秒增加量
+	ShieldReplenishAmount += ShieldAmount;              // 累加，支持多次拾取叠加
+}
+
+void UBuffComponent::ShieldRampUp(float DeltaTime)
+{
+	if (!bReplenishingShield || Character == nullptr || Character->IsElimmed()) return;
+
+	const float ReplenishThisFrame = ShieldReplenishRate * DeltaTime;
+
+	// 逐帧增加护盾值，上限为 MaxShield
+	Character->SetShield(FMath::Clamp(
+		Character->GetShield() + ReplenishThisFrame, 0.f, Character->GetMaxShield()));
+	Character->UpdateHUDShield();
+
+	ShieldReplenishAmount -= ReplenishThisFrame;
+
+	// 护盾已满或总量已用完 → 停止 ramp-up
+	if (ShieldReplenishAmount <= 0.f || Character->GetShield() >= Character->GetMaxShield())
+	{
+		bReplenishingShield = false;
+		ShieldReplenishAmount = 0.f;
+	}
 }
 
 // ——————————————————————————————————————————————————————

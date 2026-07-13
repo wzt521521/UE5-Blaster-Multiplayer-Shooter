@@ -64,6 +64,7 @@ void ABlasterCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 	UpdateHUDHealth();
+	UpdateHUDShield();
 	// ————————————————————————————————————————————
 	// 血量 UI 初始化：把初始血量发送到屏幕上的血条
 	// 这里的调用时机是 BeginPlay（只执行一次），所以只负责 UI 初始显示
@@ -236,6 +237,7 @@ void ABlasterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &Ou
 
 	DOREPLIFETIME_CONDITION(ABlasterCharacter, OverlappingWeapon, COND_OwnerOnly);//注册要复制的变量
 	DOREPLIFETIME(ABlasterCharacter, Health);
+	DOREPLIFETIME(ABlasterCharacter, Shield);
 }
 
 void ABlasterCharacter::Tick(float DeltaTime)
@@ -398,8 +400,27 @@ void ABlasterCharacter::FireButtonReleased()
 //这个函数只会在服务器上面调用
 void ABlasterCharacter::ReceiveDamage(AActor *DamagedActor, float Damage, const UDamageType *DamageType, AController *InstigatorController, AActor *DamageCauser)
 {
-	Health = FMath::Clamp(Health - Damage, 0.f, MaxHealth);
+	// ————————————————————————————————————————————
+	// 护盾先吸收伤害，护盾不够了才扣血
+	// ————————————————————————————————————————————
+	float DamageToHealth = Damage;
+	if (Shield > 0.f)
+	{
+		if (Shield >= Damage)           // 护盾能完全吸收
+		{
+			Shield = FMath::Clamp(Shield - Damage, 0.f, MaxShield);
+			DamageToHealth = 0.f;
+		}
+		else                            // 护盾不够，先扣光护盾，剩余伤害扣血
+		{
+			DamageToHealth = FMath::Clamp(DamageToHealth - Shield, 0.f, Damage);
+			Shield = 0.f;
+		}
+	}
+
+	Health = FMath::Clamp(Health - DamageToHealth, 0.f, MaxHealth);
 	UpdateHUDHealth();
+	UpdateHUDShield();
 	PlayHitReactMontage();
 
 	if(Health <= 0.f){
@@ -523,6 +544,25 @@ void ABlasterCharacter::OnRep_Health()
 {
 	UpdateHUDHealth();
 	PlayHitReactMontage();
+}
+
+void ABlasterCharacter::OnRep_Shield(float LastShield)
+{
+	UpdateHUDShield();
+	// 护盾减少（受伤）时播放受击动画
+	if (Shield < LastShield)
+	{
+		PlayHitReactMontage();
+	}
+}
+
+void ABlasterCharacter::UpdateHUDShield()
+{
+	BlasterPlayerController = BlasterPlayerController == nullptr ? Cast<ABlasterPlayerController>(Controller) : BlasterPlayerController;
+	if (BlasterPlayerController)
+	{
+		BlasterPlayerController->SetHUDShield(Shield, MaxShield);
+	}
 }
 
 void ABlasterCharacter::Heal(float HealAmount)

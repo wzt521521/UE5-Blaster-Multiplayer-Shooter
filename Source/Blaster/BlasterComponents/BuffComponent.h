@@ -13,6 +13,7 @@ class BLASTER_API UBuffComponent : public UActorComponent
 
 public:
 	UBuffComponent();
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	// 记录角色原始移动属性，Buff 结束后恢复用
 	void SetInitialSpeeds(float BaseSpeed, float CrouchSpeed);
@@ -22,6 +23,9 @@ public:
 	void BuffSpeed(float BuffBaseSpeed, float BuffCrouchSpeed, float BuffTime);
 	// Jump Buff：同上模式
 	void BuffJump(float BuffJumpVelocity, float BuffTime);
+
+	// Shield：服务器调用 → Tick 每帧递增护盾（平滑 ramp-up），可叠加多次拾取
+	void ReplenishShield(float ShieldAmount, float ReplenishTime);
 
 protected:
 	virtual void BeginPlay() override;
@@ -52,4 +56,12 @@ private:
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastJumpBuff(float JumpVelocity);
+
+	// ———— Shield ramp-up 状态 ————
+	// 护盾不是瞬间加上，而是每帧递增，实现平滑增长效果
+	bool bReplenishingShield = false;
+	float ShieldReplenishRate = 0.f;   // 每秒增加多少护盾值
+	float ShieldReplenishAmount = 0.f; // 剩余待增加的护盾总量
+
+	void ShieldRampUp(float DeltaTime);
 };

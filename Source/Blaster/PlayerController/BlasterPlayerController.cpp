@@ -45,6 +45,7 @@ void ABlasterPlayerController::OnPossess(APawn* InPawn)
 	if (BlasterCharacter)
 	{
 		SetHUDHealth(BlasterCharacter->GetHealth(), BlasterCharacter->GetMaxHealth());
+		SetHUDShield(BlasterCharacter->GetShield(), BlasterCharacter->GetMaxShield());
 	}
 }
 
@@ -66,6 +67,27 @@ void ABlasterPlayerController::SetHUDHealth(float Health, float MaxHealth)
 		bInitializeHealth = true;
 		HUDHealth = Health;
 		HUDMaxHealth = MaxHealth;
+	}
+}
+
+void ABlasterPlayerController::SetHUDShield(float Shield, float MaxShield)
+{
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	bool bHUDValid = BlasterHud && BlasterHud->CharacterOverlay
+		&& BlasterHud->CharacterOverlay->ShieldBar && BlasterHud->CharacterOverlay->ShieldText;
+
+	if (bHUDValid)
+	{
+		const float ShieldPercent = Shield / MaxShield;
+		BlasterHud->CharacterOverlay->ShieldBar->SetPercent(ShieldPercent);
+		FString ShieldTextStr = FString::Printf(TEXT("%d/%d"), FMath::CeilToInt(Shield), FMath::CeilToInt(MaxShield));
+		BlasterHud->CharacterOverlay->ShieldText->SetText(FText::FromString(ShieldTextStr));
+	}
+	else
+	{
+		bInitializeShield = true;
+		HUDShield = Shield;
+		HUDMaxShield = MaxShield;
 	}
 }
 
@@ -434,6 +456,7 @@ void ABlasterPlayerController::PollInit()//推送缓存数据
 			{
 				if (bInitializeHealth) SetHUDHealth(HUDHealth, HUDMaxHealth);
 				if (bInitializeScore) SetHUDScore(HUDScore);
+					if (bInitializeShield) SetHUDShield(HUDShield, HUDMaxShield);
 				if (bInitializeDefeats) SetHUDDefeats(HUDDefeats);
 				if (bInitializeMatchCountdown) SetHUDMatchCountdown(HUDMatchCountdown);
 			}
