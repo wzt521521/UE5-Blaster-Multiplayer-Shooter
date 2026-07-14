@@ -150,6 +150,41 @@ void ABlasterPlayerController::SetHUDCarriedAmmo(int32 Ammo)
 	}
 }
 
+void ABlasterPlayerController::SetHUDMismatchNotification(const FString& Message)
+{
+	// 获取 HUD 和 CharacterOverlay，直接设置 MismatchNotificationText 控件
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	bool bHUDValid = BlasterHud && BlasterHud->CharacterOverlay
+		&& BlasterHud->CharacterOverlay->MismatchNotificationText;
+
+	if (bHUDValid)
+	{
+		// 设置绿色提示文本并显示
+		BlasterHud->CharacterOverlay->MismatchNotificationText->SetText(FText::FromString(Message));
+		BlasterHud->CharacterOverlay->MismatchNotificationText->SetVisibility(ESlateVisibility::Visible);
+
+		// 启动2秒 Timer，到期后调用 HideMismatchNotification 隐藏文本
+		// SetTimer 会覆盖已有的 Timer，重复触发时自动重置倒计时
+		GetWorldTimerManager().SetTimer(
+			MismatchNotificationTimer,
+			this,
+			&ABlasterPlayerController::HideMismatchNotification,
+			2.0f
+		);
+	}
+}
+
+void ABlasterPlayerController::HideMismatchNotification()
+{
+	// Timer 到期：隐藏不匹配提示文本
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	if (BlasterHud && BlasterHud->CharacterOverlay
+		&& BlasterHud->CharacterOverlay->MismatchNotificationText)
+	{
+		BlasterHud->CharacterOverlay->MismatchNotificationText->SetVisibility(ESlateVisibility::Hidden);
+	}
+}
+
 void ABlasterPlayerController::SetHUDMatchCountdown(float CountdownTime)
 {
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;

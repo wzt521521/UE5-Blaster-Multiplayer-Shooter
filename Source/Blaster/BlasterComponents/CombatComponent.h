@@ -60,7 +60,9 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void FinishReloading();
 	void ReloadEmptyWeapon();
-	void PickupAmmo(EWeaponType WeaponType, int32 AmmoAmount);
+	// 尝试拾取弹药：类型匹配→加备弹→返回 true；类型不匹配或无装备武器→返回 false
+	// 由 BlasterCharacter::ServerPickupAmmo RPC 调用，根据返回值决定销毁拾取物还是提示不匹配
+	bool PickupAmmo(EWeaponType WeaponType, int32 AmmoAmount);
 
 protected:
 	
@@ -93,44 +95,11 @@ protected:
 	void AttachActorToLeftHand(AActor* ActorToAttach);
 	void EquipPrimaryWeapon(AWeapon* WeaponToEquip);
 
-	//当前武器携带的子弹
-	UPROPERTY(ReplicatedUsing = OnRep_CarriedAmmo)
-	int32 CarriedAmmo;
-
-	UFUNCTION()
-	void OnRep_CarriedAmmo();
-
-	void InitializeCarriedAmmo();
-
 	UPROPERTY(ReplicatedUsing = OnRep_CombatState)
 	ECombatState CombatState=ECombatState::ECS_Unoccupied;
 
 	UFUNCTION()
 	void OnRep_CombatState();
-
-	UPROPERTY(EditAnywhere)
-	int32 StartingARAmmo=30;
-
-	UPROPERTY(EditAnywhere)
-	int32 StartingSMGAmmo=30;
-
-	UPROPERTY(EditAnywhere)
-	int32 StartingRocketAmmo=6;
-
-	UPROPERTY(EditAnywhere)
-	int32 StartingPistolAmmo=30;
-
-	UPROPERTY(EditAnywhere)
-	int32 StartingSniperAmmo=10;
-
-	UPROPERTY(EditAnywhere)
-	int32 StartingShotgunAmmo=10;
-
-	UPROPERTY(EditAnywhere)
-	int32 StartingGrenadeLauncherAmmo=0;
-
-	//仓库
-	TMap<EWeaponType, int32> CarriedAmmoMap;
 
 	UFUNCTION(Server, Reliable)
 	void ServerFire(const FVector_NetQuantize& TraceHitTarget, float FireDelay);
@@ -178,11 +147,6 @@ private:
 	FTimerHandle FireTimer;
 	bool bCanFire = true;
 	bool bLocallyReloading = false;
-
-	UPROPERTY(EditAnywhere)
-	int32 MaxCarriedAmmo = 500;
-
-	void UpdateCarriedAmmo();
 
 	// 根据角色移动速度计算的散布因子（0=静止，1=全速奔跑）
 	float CrosshairVelocityFactor;

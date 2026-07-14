@@ -43,4 +43,9 @@ public:
 
 	UPROPERTY(meta = (BindWidget))
 	UTextBlock* MatchCountdownText;
+
+	// 弹药类型不匹配提示文本（"枪械与子弹不匹配！"）
+	// 由 BlasterPlayerController::SetHUDMismatchNotification 设置，2秒后自动隐藏
+	UPROPERTY(meta = (BindWidget))
+	UTextBlock* MismatchNotificationText;
 };

@@ -29,6 +29,9 @@ AWeapon::AWeapon()
 	WeaponMesh->SetCustomDepthStencilValue(CUSTOM_DEPTH_BLUE);
 	WeaponMesh->MarkRenderStateDirty();
 
+	MaxSpareAmmo = 90;  // 默认值，蓝图按武器类型覆盖
+	SpareAmmo = MaxSpareAmmo;
+
 	AreaSphere = CreateDefaultSubobject<USphereComponent>(TEXT("AreaSphere"));//创建一个球形碰撞组件，用于检测玩家是否进入枪支的拾取范围
 	AreaSphere->SetupAttachment(RootComponent);
 	AreaSphere->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);//默认所有碰撞通道都忽略
@@ -56,13 +59,16 @@ void AWeapon::BeginPlay()
 	}
 	if(GetLocalRole() == ENetRole::ROLE_Authority)//只有服务器才启用碰撞，能够检测玩家进入枪支的拾取范围
 	{
-		
+
 		AreaSphere->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);//启用碰撞
 
 		AreaSphere->SetCollisionResponseToChannel(ECollisionChannel::ECC_Pawn, ECollisionResponse::ECR_Overlap);//对pawn设置为开启碰撞，检测重叠事件
 		AreaSphere->OnComponentBeginOverlap.AddDynamic(this, &AWeapon::OnSphereOverlap);//绑定重叠事件
 
 		AreaSphere->OnComponentEndOverlap.AddDynamic(this, &AWeapon::OnSphereEndOverlap);//绑定结束重叠事件
+
+		SpareAmmo = MaxSpareAmmo; // 新生成的武器备弹全满
+		Ammo = MagCapacity;        // 初始弹匣装满
 	}
 }
 
@@ -72,6 +78,7 @@ void AWeapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeP
 
 	DOREPLIFETIME(AWeapon, WeaponState);
 	DOREPLIFETIME(AWeapon, Ammo);
+	DOREPLIFETIME_CONDITION(AWeapon, SpareAmmo, COND_OwnerOnly);
 }
 
 void AWeapon::OnSphereOverlap(UPrimitiveComponent *OverlappedComponent, AActor *OtherActor, UPrimitiveComponent *OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult &SweepResult)
@@ -230,6 +237,7 @@ void AWeapon::SetHUDAmmo()
 		if(BlasterControllerOwner)
 		{
 			BlasterControllerOwner->SetHUDWeaponAmmo(Ammo);
+			BlasterControllerOwner->SetHUDCarriedAmmo(SpareAmmo); // 备弹也推送到HUD
 		}
 	}
 }
@@ -244,9 +252,22 @@ void AWeapon::Dropped()
 	BlasterCharacterOwner = nullptr;//设置玩家角色为nullptr
 }
 
-void AWeapon::AddAmmo(int32 AmmoToAdd)
+void AWeapon::ReloadFromSpare(int32 Amount)
 {
-	Ammo = FMath::Clamp(Ammo - AmmoToAdd, 0, MagCapacity);
+	int32 ClampedAmount = FMath::Clamp(Amount, 0, SpareAmmo);
+	SpareAmmo -= ClampedAmount;
+	Ammo = FMath::Clamp(Ammo + ClampedAmount, 0, MagCapacity);
+	SetHUDAmmo();
+}
+
+void AWeapon::AddToSpare(int32 Amount)
+{
+	SpareAmmo = FMath::Clamp(SpareAmmo + Amount, 0, MaxSpareAmmo);
+	SetHUDAmmo();
+}
+
+void AWeapon::OnRep_SpareAmmo()
+{
 	SetHUDAmmo();
 }
 

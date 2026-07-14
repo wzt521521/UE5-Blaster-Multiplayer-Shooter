@@ -43,7 +43,6 @@ void UCombatComponent::EquipPrimaryWeapon(AWeapon* WeaponToEquip)
 	AttachActorToRightHand(EquippedWeapon);
 	EquippedWeapon->SetOwner(Character);
 	EquippedWeapon->SetHUDAmmo();
-	UpdateCarriedAmmo();
 	PlayEquipWeaponSound(WeaponToEquip);
 	ReloadEmptyWeapon();
 }
@@ -102,8 +101,11 @@ void UCombatComponent::ReloadEmptyWeapon()
 
 void UCombatComponent::Reload()
 {
-	if (CarriedAmmo > 0 && CombatState != ECombatState::ECS_Reloading && EquippedWeapon && !EquippedWeapon->IsFull() && !bLocallyReloading) {
-		// 客户端预测：纯客户端立即播放换弹动画；服务器由 ServerReload RPC 内触发避免重复
+	if (EquippedWeapon && EquippedWeapon->HasSpareAmmo()
+		&& CombatState != ECombatState::ECS_Reloading
+		&& !EquippedWeapon->IsFull()
+		&& !bLocallyReloading)
+	{
 		if (!Character->HasAuthority()) HandReload();
 		ServerReload();
 		bLocallyReloading = true;
@@ -127,11 +129,10 @@ void UCombatComponent::ServerReload_Implementation()//只会在服务器执行
 	if(Character == NULL||EquippedWeapon==NULL) return;
 
 	int32 ReloadAmount = AmountToReload();
-	if(CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType())){
-		CarriedAmmoMap[EquippedWeapon->GetWeaponType()]-=ReloadAmount;
+	if (ReloadAmount > 0)
+	{
+		EquippedWeapon->ReloadFromSpare(ReloadAmount);
 	}
-	UpdateCarriedAmmo();
-	EquippedWeapon->AddAmmo(-ReloadAmount);
 	HandReload();
 	CombatState = ECombatState::ECS_Reloading;
 	bLocallyReloading = true;
@@ -498,9 +499,6 @@ void UCombatComponent::BeginPlay()
 			DefaultFOV = Character->GetFollowCamera()->FieldOfView;
 			CurrentFOV = DefaultFOV;
 		}
-		if(Character->HasAuthority()){
-			InitializeCarriedAmmo();
-		}
 	}
 	
 }
@@ -529,28 +527,7 @@ void UCombatComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &Out
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UCombatComponent, EquippedWeapon);
 	DOREPLIFETIME(UCombatComponent, bAiming);
-	DOREPLIFETIME_CONDITION(UCombatComponent, CarriedAmmo,COND_OwnerOnly);
 	DOREPLIFETIME(UCombatComponent, CombatState);
-}
-
-void UCombatComponent::OnRep_CarriedAmmo()
-{
-	Controller = Controller == NULL ? Cast<ABlasterPlayerController>(Character->Controller) : Controller;
-	if (Controller)
-	{
-		Controller->SetHUDCarriedAmmo(CarriedAmmo);
-	}
-}
-
-void UCombatComponent::InitializeCarriedAmmo()
-{
-	CarriedAmmoMap.Emplace(EWeaponType::EWT_AssaultRifle, StartingARAmmo);
-	CarriedAmmoMap.Emplace(EWeaponType::EWT_SubmachineGun, StartingSMGAmmo);
-	CarriedAmmoMap.Emplace(EWeaponType::EWT_RocketLauncher, StartingRocketAmmo);
-	CarriedAmmoMap.Emplace(EWeaponType::EWT_Pistol, StartingPistolAmmo);
-	CarriedAmmoMap.Emplace(EWeaponType::EWT_SniperRifle, StartingSniperAmmo);
-	CarriedAmmoMap.Emplace(EWeaponType::EWT_Shotgun, StartingShotgunAmmo);
-	CarriedAmmoMap.Emplace(EWeaponType::EWT_GrenadeLauncher, StartingGrenadeLauncherAmmo);
 }
 
 void UCombatComponent::OnRep_CombatState()
@@ -578,38 +555,26 @@ int32 UCombatComponent::AmountToReload()
 {
 	if (EquippedWeapon == nullptr) return 0;
 	int32 RoomInMag = EquippedWeapon->GetMagCapacity() - EquippedWeapon->GetAmmo();
-	if(CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType())){
-		int32 AmountCarried = CarriedAmmoMap[EquippedWeapon->GetWeaponType()];
-		int32 Least = FMath::Min(RoomInMag, AmountCarried);
-		return FMath::Clamp(RoomInMag, 0, Least);
-	}
-    return 0;
+	int32 AmountSpare = EquippedWeapon->GetSpareAmmo();
+	return FMath::Min(RoomInMag, AmountSpare);
 }
 
-void UCombatComponent::PickupAmmo(EWeaponType WeaponType, int32 AmmoAmount)
+bool UCombatComponent::PickupAmmo(EWeaponType WeaponType, int32 AmmoAmount)
 {
-	if (CarriedAmmoMap.Contains(WeaponType))
+	// 只有装备了同类型武器才添加备弹（CS:GO 规则：子弹类型必须匹配当前枪支）
+	if (EquippedWeapon && EquippedWeapon->GetWeaponType() == WeaponType)
 	{
-		CarriedAmmoMap[WeaponType] = FMath::Clamp(CarriedAmmoMap[WeaponType] + AmmoAmount, 0, MaxCarriedAmmo);
-		UpdateCarriedAmmo();
+		EquippedWeapon->AddToSpare(AmmoAmount);
+
+		// 类型匹配：如果弹匣为空，自动触发换弹（用户体验优化）
+		if (EquippedWeapon->IsEmpty())
+		{
+			Reload();
+		}
+		return true; // 拾取成功，通知调用方可以销毁拾取物
 	}
-	if (EquippedWeapon && EquippedWeapon->IsEmpty() && EquippedWeapon->GetWeaponType() == WeaponType)
-	{
-		Reload();
-	}
+
+	return false; // 拾取失败（无装备武器或类型不匹配），通知调用方显示提示
 }
 
-void UCombatComponent::UpdateCarriedAmmo()
-{
-	if (EquippedWeapon == nullptr) return;
-	if (CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType()))
-	{
-		CarriedAmmo = CarriedAmmoMap[EquippedWeapon->GetWeaponType()];
-	}
-	Controller = Controller == nullptr ? Cast<ABlasterPlayerController>(Character->Controller) : Controller;
-	if (Controller)
-	{
-		Controller->SetHUDCarriedAmmo(CarriedAmmo);
-	}
-}
 

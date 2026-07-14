@@ -46,7 +46,10 @@ public:
 	virtual void Fire(const FVector& HitTarget);
 	void SetHUDAmmo();
 	void Dropped();
-	void AddAmmo(int32 AmmoToAdd);
+	// 从备弹转移指定数量到弹匣（换弹时服务器调用）
+	void ReloadFromSpare(int32 Amount);
+	// 从拾取物添加备弹（拾取弹药时调用）
+	void AddToSpare(int32 Amount);
 	virtual void OnRep_Owner() override;
 	UPROPERTY(EditAnywhere, Category = Combat)
 	float FireDelay = .15f;
@@ -133,7 +136,7 @@ private:
 	UPROPERTY(EditAnywhere)
 	int32 MagCapacity;
 
-	UPROPERTY( EditAnywhere,ReplicatedUsing=OnRep_Ammo)
+	UPROPERTY(ReplicatedUsing=OnRep_Ammo)
 	int32 Ammo;
 
 	UFUNCTION()
@@ -141,6 +144,17 @@ private:
 
 	UFUNCTION()
 	void SpendRound();
+
+	// 该武器最大备弹量（如 AR=90, 手枪=60），每个武器蓝图单独配置
+	UPROPERTY(EditAnywhere, Category = "Weapon Properties")
+	int32 MaxSpareAmmo;
+
+	// 当前备弹量，仅同步给持有者
+	UPROPERTY(ReplicatedUsing = OnRep_SpareAmmo)
+	int32 SpareAmmo;
+
+	UFUNCTION()
+	void OnRep_SpareAmmo();
 
 	UPROPERTY(EditAnywhere, Category = "Weapon Properties")
 	EWeaponType WeaponType;
@@ -177,6 +191,9 @@ public:
 	FORCEINLINE EWeaponType GetReloadType() const { return WeaponType; }
 	FORCEINLINE int32 GetAmmo() const { return Ammo; }
 	FORCEINLINE int32 GetMagCapacity() const { return MagCapacity; }
+	FORCEINLINE int32 GetSpareAmmo() const { return SpareAmmo; }
+	FORCEINLINE int32 GetMaxSpareAmmo() const { return MaxSpareAmmo; }
+	FORCEINLINE bool HasSpareAmmo() const { return SpareAmmo > 0; }
 	FORCEINLINE float GetDamage() const { return Damage; }
 	FORCEINLINE float GetHeadShotDamage() const { return HeadShotDamage; }
 

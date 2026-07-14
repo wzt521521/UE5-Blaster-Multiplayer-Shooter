@@ -19,7 +19,11 @@ public:
 	void SetHUDDefeats(int32 Defeats);
 	void SetHUDWeaponAmmo(int32 Ammo);
 	void SetHUDCarriedAmmo(int32 Ammo);
-	void SetHUDMatchCountdown(float CountdownTime);
+void SetHUDMatchCountdown(float CountdownTime);
+
+	// 弹药类型不匹配提示：显示绿色消息2秒后自动隐藏
+	// 由 BlasterCharacter::ClientAmmoMismatchNotification RPC 调用
+	void SetHUDMismatchNotification(const FString& Message);
 	void SetHUDAnnouncementCountdown(float CountdownTime);
 	virtual void OnPossess(APawn* InPawn) override;
 	virtual void Tick(float DeltaTime) override;
@@ -93,6 +97,10 @@ private:
 	bool bInitializeMatchCountdown = false;
 	int32 HUDCarriedAmmo;
 	bool bInitializeCarriedAmmo = false;
+
+	// 不匹配提示自动隐藏 Timer（2秒）
+	FTimerHandle MismatchNotificationTimer;
+	void HideMismatchNotification();
 
 	FString GetInfoText(const TArray<class ABlasterPlayerState*>& Players);
 };

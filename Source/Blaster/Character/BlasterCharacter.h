@@ -10,6 +10,7 @@
 #include "BlasterCharacter.generated.h"
 class ABlasterPlayerController;
 class ABlasterPlayerState;
+class AAmmoPickup;
 UCLASS()
 class BLASTER_API ABlasterCharacter : public ACharacter, public IInteractWithCrosshairsInterface
 {
@@ -95,6 +96,15 @@ private:
 	// 然后引擎会自动追踪旧值并在复制发生时传给你的 OnRep_OverlappingWeapon。
 	UFUNCTION()
 	void OnRep_OverlappingWeapon(AWeapon* LastWeapon);//被复制时才会调用的函数，服务器永远不会被复制，所以服务器永远不会调用
+
+	// 弹药拾取追踪：与 OverlappingWeapon 同款复制模式（COND_OwnerOnly）
+	// AAmmoPickup::OnSphereOverlap → SetOverlappingAmmo → 复制到客户端 → OnRep → 显示 PickupWidget
+	UPROPERTY(ReplicatedUsing = OnRep_OverlappingAmmo)
+	class AAmmoPickup* OverlappingAmmo;
+
+	UFUNCTION()
+	void OnRep_OverlappingAmmo(AAmmoPickup* LastAmmo);
+
 	UPROPERTY(VisibleAnywhere, Category = "Combat",BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UCombatComponent* Combat;
 
@@ -103,6 +113,16 @@ private:
 
 	UFUNCTION(Server, Reliable)
 	void ServerEquipButtonPressed();
+
+	// 弹药拾取 Server RPC：由 EquipButtonPressed 在无武器重叠时调用
+	// 服务器验证 OverlappingAmmo 是否有效 + Combat->PickupAmmo 类型匹配检查
+	UFUNCTION(Server, Reliable)
+	void ServerPickupAmmo();
+
+	// 弹药不匹配通知 Client RPC：仅在类型不匹配时由服务器单向通知持有者客户端
+	// 调用链：ServerPickupAmmo → PickupAmmo(false) → 本 RPC → PlayerController→HUD绿色提示
+	UFUNCTION(Client, Reliable)
+	void ClientAmmoMismatchNotification(const FString& Message);
 	float AO_Pitch;
 	float AO_Yaw;
 	float InterpAO_Yaw;
@@ -160,6 +180,10 @@ private:
 
 public:
 	void SetOverlappingWeapon(AWeapon* Weapon) ;
+
+	// 弹药拾取追踪 Setter：由 AAmmoPickup::OnSphereOverlap/EndOverlap 调用
+	// 设置 OverlappingAmmo（触发复制）→ 客户端 OnRep → ShowPickupWidget
+	void SetOverlappingAmmo(AAmmoPickup* Ammo);
 	void Heal(float HealAmount);
 	void UpdateHUDShield();
 
