@@ -208,6 +208,7 @@ void UCombatComponent::Fire()
 			break;
 		}
 
+		ApplyRecoil();
 		StartFireTimer();
 	}
 }
@@ -265,6 +266,22 @@ void UCombatComponent::LocalFire(const FVector_NetQuantize& TraceHitTarget)
 		Character->PlayFireMontage(bAiming);
 		EquippedWeapon->Fire(TraceHitTarget);
 	}
+}
+
+void UCombatComponent::ApplyRecoil()
+{
+	// 纯客户端视觉效果：开火后摄像机视角上跳+随机水平偏移，不影响子弹落点
+	// 不实现自动恢复 → 玩家需手动拉鼠标压枪
+	if (!Character || !Character->IsLocallyControlled() || !EquippedWeapon) return;
+
+	APlayerController* PC = Character->GetController<APlayerController>();
+	if (!PC) return;
+
+	float PitchRecoil = FMath::RandRange(EquippedWeapon->RecoilPitchMin, EquippedWeapon->RecoilPitchMax);
+	float YawRecoil  = FMath::RandRange(EquippedWeapon->RecoilYawMin,  EquippedWeapon->RecoilYawMax);
+
+	PC->AddPitchInput(-PitchRecoil); // UE Pitch: 正=低头, 负=抬头 → 取反实现上跳
+	PC->AddYawInput(YawRecoil);      // 正值 = 屏幕右偏
 }
 
 void UCombatComponent::StartFireTimer()

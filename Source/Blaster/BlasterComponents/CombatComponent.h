@@ -81,6 +81,7 @@ protected:
 	void PlayEquipWeaponSound(AWeapon* WeaponToEquip);
 	void FireButtonPressed(bool bPressed);
 	void Fire();
+	void ApplyRecoil();
 	void FireProjectileWeapon();
 	void FireHitScanWeapon();
 	void FireShotgun();

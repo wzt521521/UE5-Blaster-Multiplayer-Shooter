@@ -60,6 +60,16 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat)
 	bool bUseScatter = false;
 
+	// 后坐力 — 每发子弹的摄像机视角偏移（纯视觉表现，不影响子弹落点）
+	UPROPERTY(EditAnywhere, Category = "Visual Recoil")
+	float RecoilPitchMin = 0.3f;   // 上跳角度下限 (度)
+	UPROPERTY(EditAnywhere, Category = "Visual Recoil")
+	float RecoilPitchMax = 0.8f;   // 上跳角度上限 (度)
+	UPROPERTY(EditAnywhere, Category = "Visual Recoil")
+	float RecoilYawMin = -0.2f;    // 水平偏移下限 (度)
+	UPROPERTY(EditAnywhere, Category = "Visual Recoil")
+	float RecoilYawMax = 0.2f;     // 水平偏移上限 (度)
+
 	UPROPERTY(EditAnywhere)
 	class USoundCue* EquipSound;
 
