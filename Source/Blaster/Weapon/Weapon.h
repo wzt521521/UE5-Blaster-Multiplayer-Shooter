@@ -111,6 +111,13 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Weapon Scatter")
 	float SphereRadius = 75.f;
 
+	// 瞄准时的散布球距离/半径 — 值越小子弹越集中
+	UPROPERTY(EditAnywhere, Category = "Weapon Scatter")
+	float AimDistanceToSphere = 400.f;
+
+	UPROPERTY(EditAnywhere, Category = "Weapon Scatter")
+	float AimSphereRadius = 25.f;
+
 	UPROPERTY(EditAnywhere)
 	float Damage = 20.f;
 
@@ -183,12 +190,13 @@ public:
 	UTexture2D* CrosshairsTop;
 
 	// 瞄准时的相机视野，CombatComponent::InterpFOV 读取作为开镜插值目标
+	// 默认 78°（约 1.15x），接近腰射视野，实现轻微放大效果
 	UPROPERTY(EditAnywhere)
-	float ZoomedFOV = 30.f;
+	float ZoomedFOV = 78.f;
 
 	// 开镜速度，CombatComponent::InterpFOV 读取作为开镜插值速度
 	UPROPERTY(EditAnywhere)
-	float ZoomInterpSpeed = 20.f;
+	float ZoomInterpSpeed = 6.f;
 
 	void SetWeaponState(EWeaponState State);
 	FORCEINLINE USphereComponent* GetAreaSphere() const {return AreaSphere;}
@@ -206,6 +214,8 @@ public:
 	FORCEINLINE bool HasSpareAmmo() const { return SpareAmmo > 0; }
 	FORCEINLINE float GetDamage() const { return Damage; }
 	FORCEINLINE float GetHeadShotDamage() const { return HeadShotDamage; }
+	FORCEINLINE float GetAimDistanceToSphere() const { return AimDistanceToSphere; }
+	FORCEINLINE float GetAimSphereRadius() const { return AimSphereRadius; }
 
-	FVector TraceEndWithScatter(const FVector& HitTarget);
+	FVector TraceEndWithScatter(const FVector& HitTarget, bool bAiming);
 };

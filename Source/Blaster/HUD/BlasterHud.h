@@ -8,6 +8,7 @@
 class UTexture2D;
 class UCharacteroverlay;
 class UUserWidget;
+class UBuyMenu;
 
 // 准星绘制所需的数据包，由武器传递给HUD
 USTRUCT(BlueprintType)
@@ -55,6 +56,16 @@ public:
 
 	void AddAnnouncement();
 	void AddCharacterOverlay();
+
+	// 购买菜单蓝图类，蓝图中配置，运行时由 CreateBuyMenu() 实例化
+	UPROPERTY(EditAnywhere, Category = "Player HUD")
+	TSubclassOf<UUserWidget> BuyMenuClass;
+
+	// 购买菜单运行时实例指针，ShowBuyMenu/HideBuyMenu 控制其 AddToViewport/RemoveFromParent
+	UPROPERTY()
+	class UBuyMenu* BuyMenu;
+
+	void CreateBuyMenu();
 
 private:
 

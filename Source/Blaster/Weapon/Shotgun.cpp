@@ -109,7 +109,7 @@ void AShotgun::FireShotgun(const TArray<FVector_NetQuantize>& HitTargets)
 	}
 }
 
-void AShotgun::ShotgunTraceEndWithScatter(const FVector& HitTarget, TArray<FVector_NetQuantize>& HitTargets)
+void AShotgun::ShotgunTraceEndWithScatter(const FVector& HitTarget, TArray<FVector_NetQuantize>& HitTargets, bool bAiming)
 {
 	const USkeletalMeshSocket* MuzzleFlashSocket = GetWeaponMesh()->GetSocketByName("MuzzleFlash");
 	if (MuzzleFlashSocket == nullptr) return;
@@ -117,12 +117,16 @@ void AShotgun::ShotgunTraceEndWithScatter(const FVector& HitTarget, TArray<FVect
 	const FTransform SocketTransform = MuzzleFlashSocket->GetSocketTransform(GetWeaponMesh());
 	const FVector TraceStart = SocketTransform.GetLocation();
 
+	// 瞄准时使用更集中的散布参数
+	const float ActiveDistance = bAiming ? AimDistanceToSphere : DistanceToSphere;
+	const float ActiveRadius = bAiming ? AimSphereRadius : SphereRadius;
+
 	const FVector ToTargetNormalized = (HitTarget - TraceStart).GetSafeNormal();
-	const FVector SphereCenter = TraceStart + ToTargetNormalized * DistanceToSphere;
+	const FVector SphereCenter = TraceStart + ToTargetNormalized * ActiveDistance;
 
 	for (uint32 i = 0; i < NumberOfPellets; i++)
 	{
-		const FVector RandVec = UKismetMathLibrary::RandomUnitVector() * FMath::FRandRange(0.f, SphereRadius);
+		const FVector RandVec = UKismetMathLibrary::RandomUnitVector() * FMath::FRandRange(0.f, ActiveRadius);
 		const FVector EndLoc = SphereCenter + RandVec;
 		FVector ToEndLoc = EndLoc - TraceStart;
 		ToEndLoc = TraceStart + ToEndLoc * TRACE_LENGTH / ToEndLoc.Size();

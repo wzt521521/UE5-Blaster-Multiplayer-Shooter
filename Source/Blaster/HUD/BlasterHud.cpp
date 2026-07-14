@@ -4,6 +4,7 @@
 #include "BlasterHud.h"
 #include "Characteroverlay.h"
 #include "Announcement.h"
+#include "BuyMenu.h"
 #include "GameFramework/PlayerController.h"
 void ABlasterHud::DrawHUD()
 {
@@ -102,5 +103,18 @@ void ABlasterHud::AddAnnouncement()
 	{
 		Announcement = CreateWidget<UAnnouncement>(PlayerController, AnnouncementClass);
 		Announcement->AddToViewport();
+	}
+}
+
+void ABlasterHud::CreateBuyMenu()
+{
+	// 防御：已存在则跳过，避免重复创建
+	if (BuyMenu) return;
+
+	APlayerController* PlayerController = GetOwningPlayerController();
+	if (PlayerController && BuyMenuClass)
+	{
+		BuyMenu = CreateWidget<UBuyMenu>(PlayerController, BuyMenuClass);
+		// 不调用 AddToViewport()，由 PlayerController::ShowBuyMenu() 控制显示时机
 	}
 }

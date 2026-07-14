@@ -34,10 +34,17 @@ void SetHUDMatchCountdown(float CountdownTime);
 	void HandleMatchHasStarted(bool bTeamsMatch = false);
 	void HandleCooldown();
 
+	// 购买菜单生命周期：热身开始自动打开，B 键切换，比赛开始强制关闭
+	void OpenBuyMenuOnWarmup();
+	void ShowBuyMenu();
+	void HideBuyMenu();
+	void ToggleBuyMenu();
+
 	float SingleTripTime = 0.f;
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void SetupInputComponent() override;
 	void SetHUDTime();
 	void PollInit();
 
@@ -101,6 +108,9 @@ private:
 	// 不匹配提示自动隐藏 Timer（2秒）
 	FTimerHandle MismatchNotificationTimer;
 	void HideMismatchNotification();
+
+	// 购买菜单是否正在显示，ShowBuyMenu/HideBuyMenu 维护此标志
+	bool bBuyMenuOpen = false;
 
 	FString GetInfoText(const TArray<class ABlasterPlayerState*>& Players);
 };

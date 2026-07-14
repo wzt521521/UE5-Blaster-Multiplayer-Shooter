@@ -159,7 +159,7 @@ private:
 
 	// 收镜速度，InterpFOV 从不瞄准状态恢复到 DefaultFOV 的插值速度
 	UPROPERTY(EditAnywhere)
-	float ZoomInterpSpeed = 20.f;
+	float ZoomInterpSpeed = 6.f;
 
 	// 当前实际 FOV，每帧被 InterpFOV 平滑更新后写入相机
 	float CurrentFOV;

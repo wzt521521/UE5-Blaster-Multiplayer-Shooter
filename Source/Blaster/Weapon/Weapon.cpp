@@ -271,7 +271,7 @@ void AWeapon::OnRep_SpareAmmo()
 	SetHUDAmmo();
 }
 
-FVector AWeapon::TraceEndWithScatter(const FVector& HitTarget)
+FVector AWeapon::TraceEndWithScatter(const FVector& HitTarget, bool bAiming)
 {
 	const USkeletalMeshSocket* MuzzleFlashSocket = GetWeaponMesh()->GetSocketByName("MuzzleFlash");
 	if (MuzzleFlashSocket == nullptr) return HitTarget;
@@ -279,9 +279,13 @@ FVector AWeapon::TraceEndWithScatter(const FVector& HitTarget)
 	FTransform SocketTransform = MuzzleFlashSocket->GetSocketTransform(GetWeaponMesh());
 	FVector TraceStart = SocketTransform.GetLocation();
 
+	// 瞄准时使用更集中的散布参数
+	const float ActiveDistance = bAiming ? AimDistanceToSphere : DistanceToSphere;
+	const float ActiveRadius = bAiming ? AimSphereRadius : SphereRadius;
+
 	FVector ToTargetNormalized = (HitTarget - TraceStart).GetSafeNormal();
-	FVector SphereCenter = TraceStart + ToTargetNormalized * DistanceToSphere;
-	FVector RandVec = UKismetMathLibrary::RandomUnitVector() * SphereRadius;
+	FVector SphereCenter = TraceStart + ToTargetNormalized * ActiveDistance;
+	FVector RandVec = UKismetMathLibrary::RandomUnitVector() * ActiveRadius;
 	FVector EndLoc = SphereCenter + RandVec;
 	FVector ToEndLoc = EndLoc - TraceStart;
 	FVector Result = FVector(TraceStart + ToEndLoc * TRACE_LENGTH / ToEndLoc.Size());
