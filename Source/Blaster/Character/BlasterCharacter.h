@@ -28,7 +28,6 @@ public:
 	void PlayHitReactMontage();
 	void PlayElimMontage();
 
-	void PlaySwapMontage();
 
 	void Elim();
 
@@ -124,9 +123,6 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	UAnimMontage* ReloadMontage;
 
-	UPROPERTY(EditAnywhere, Category = "Combat")
-	UAnimMontage* SwapMontage;
-
 	void HideCameraIfCharacterClose();
 
 	UPROPERTY(EditAnywhere, Category = "Camera")
@@ -160,8 +156,6 @@ private:
 	UPROPERTY(EditAnywhere)
 	TSubclassOf<AWeapon> DefaultWeaponClass;
 
-bool bRotateRootBone = false;
-
 	void ElimTimerFinsished();
 
 public:
@@ -188,7 +182,5 @@ public:
 	FORCEINLINE class UCombatComponent* GetCombat() const { return Combat; }
 	FORCEINLINE class UBuffComponent* GetBuff() const { return Buff; }
 	FORCEINLINE UAnimMontage* GetReloadMontage() const { return ReloadMontage; }
-	FORCEINLINE bool ShouldRotateRootBone() const { return bRotateRootBone; }
 
-	bool bFinishedSwapping = false;
 };

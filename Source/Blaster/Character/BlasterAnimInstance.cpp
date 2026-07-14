@@ -25,7 +25,6 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaTime)//每帧调用
     
     if(BlasterCharacter==NULL) return;
     bElimmed = BlasterCharacter->IsElimmed();//从角色类中获取是否死亡
-    bRotateRootBone = BlasterCharacter->ShouldRotateRootBone();
     FVector Velocity = BlasterCharacter->GetVelocity();//获取角色的速度
     Velocity.Z = 0;//只考虑水平速度
     Speed = Velocity.Size();//计算速度的大小
@@ -111,8 +110,7 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaTime)//每帧调用
                 RightHandRotation, LookAtRotation, DeltaTime, 30.f);
         }
     }
-    bUseFABRIK = BlasterCharacter->GetCombatState() != ECombatState::ECS_Reloading &&
-        BlasterCharacter->GetCombatState() != ECombatState::ECS_SwappingWeapons;
+    bUseFABRIK = BlasterCharacter->GetCombatState() != ECombatState::ECS_Reloading;
 	bUseAimOffsets = BlasterCharacter->GetCombatState() == ECombatState::ECS_Unoccupied;
 	bTransformRightHand = BlasterCharacter->GetCombatState() == ECombatState::ECS_Unoccupied;
 }

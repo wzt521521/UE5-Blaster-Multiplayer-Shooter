@@ -1,6 +1,5 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "Weapon.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMeshSocket.h"
@@ -22,7 +21,6 @@ AWeapon::AWeapon()
 	WeaponMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WeaponMesh"));
 	SetRootComponent(WeaponMesh);
 
-
 	WeaponMesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Block);//所有碰撞通道都阻止，让枪支能够顶墙上或者丢地上
 	WeaponMesh->SetCollisionResponseToChannel(ECollisionChannel::ECC_Pawn, ECollisionResponse::ECR_Ignore);//忽略玩家碰撞通道，让枪支能够穿过玩家
 	WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);//默认不启用碰撞，等到玩家捡起枪支后再启用碰撞
@@ -40,7 +38,6 @@ AWeapon::AWeapon()
 	PickupWidget = CreateDefaultSubobject<UWidgetComponent>(TEXT("PickupWidget"));
 	PickupWidget->SetupAttachment(RootComponent);
 }
-
 
 void AWeapon::EnableCustomDepth(bool bEnable)
 {
@@ -101,14 +98,12 @@ void AWeapon::OnRep_WeaponState()
 	OnWeaponStateSet();
 }
 
-
 //子弹为武器的属性，这里通过getowner来得到角色，然后把武器属性更新到角色ui上面
 void AWeapon::SpendRound()
 {
 	Ammo = FMath::Clamp(Ammo - 1, 0, MagCapacity);
 	SetHUDAmmo();
 }
-
 
 void AWeapon::OnRep_Ammo()
 {
@@ -132,7 +127,6 @@ void AWeapon::OnRep_Owner()
 
 }
 
-
 void AWeapon::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
@@ -150,9 +144,6 @@ void AWeapon::OnWeaponStateSet()
 	{
 	case EWeaponState::EWS_Equipped:
 		OnEquipped();
-		break;
-	case EWeaponState::EWS_EquippedSecondary:
-		OnEquippedSecondary();
 		break;
 	case EWeaponState::EWS_Dropped:
 		OnDropped();
@@ -175,28 +166,6 @@ void AWeapon::OnEquipped()
 		WeaponMesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
 	}
 	EnableCustomDepth(false);
-}
-
-void AWeapon::OnEquippedSecondary()
-{
-	ShowPickupWidget(false);
-	AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	WeaponMesh->SetSimulatePhysics(false);
-	WeaponMesh->SetEnableGravity(false);
-	WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	// SMG 枪带物理
-	if (WeaponType == EWeaponType::EWT_SubmachineGun)
-	{
-		WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-		WeaponMesh->SetEnableGravity(true);
-		WeaponMesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
-	}
-	// 背包武器高亮色：Tan
-	if (WeaponMesh)
-	{
-		WeaponMesh->SetCustomDepthStencilValue(CUSTOM_DEPTH_TAN);
-		WeaponMesh->MarkRenderStateDirty();
-	}
 }
 
 void AWeapon::OnDropped()

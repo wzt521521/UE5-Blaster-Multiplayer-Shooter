@@ -279,19 +279,9 @@ void ABlasterCharacter::LookUp(float Value)
 
 void ABlasterCharacter::EquipButtonPressed()
 {
-	if (Combat)
+	if (Combat && Combat->CombatState == ECombatState::ECS_Unoccupied)
 	{
-		if (Combat->CombatState == ECombatState::ECS_Unoccupied) ServerEquipButtonPressed();
-		bool bSwap = Combat->ShouldSwapWeapons() &&
-			!HasAuthority() &&
-			Combat->CombatState == ECombatState::ECS_Unoccupied &&
-			OverlappingWeapon == nullptr;
-		if (bSwap)
-		{
-			PlaySwapMontage();
-			Combat->CombatState = ECombatState::ECS_SwappingWeapons;
-			bFinishedSwapping = false;
-		}
+		ServerEquipButtonPressed();
 	}
 }
 
@@ -476,16 +466,9 @@ void ABlasterCharacter::OnRep_OverlappingWeapon(AWeapon* LastWeapon)//参数自�
 
 void ABlasterCharacter::ServerEquipButtonPressed_Implementation()
 {
-	if (Combat)
+	if (Combat && OverlappingWeapon)
 	{
-		if (OverlappingWeapon)
-		{
-			Combat->EquipWeapon(OverlappingWeapon);
-		}
-		else if (Combat->ShouldSwapWeapons())
-		{
-			Combat->SwapWeapons();
-		}
+		Combat->EquipWeapon(OverlappingWeapon);
 	}
 }
 
@@ -537,10 +520,6 @@ void ABlasterCharacter::HideCameraIfCharacterClose()
 		{
 			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = true;
 		}
-		if (Combat && Combat->SecondaryWeapon && Combat->SecondaryWeapon->GetWeaponMesh())
-		{
-			Combat->SecondaryWeapon->GetWeaponMesh()->bOwnerNoSee = true;
-		}
 	}
 	else
 	{
@@ -550,10 +529,6 @@ void ABlasterCharacter::HideCameraIfCharacterClose()
 		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
 		{
 			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = false;
-		}
-		if (Combat && Combat->SecondaryWeapon && Combat->SecondaryWeapon->GetWeaponMesh())
-		{
-			Combat->SecondaryWeapon->GetWeaponMesh()->bOwnerNoSee = false;
 		}
 	}
 }
@@ -598,7 +573,7 @@ void ABlasterCharacter::SetOverlappingWeapon(AWeapon *Weapon)
 	{
 		OverlappingWeapon->ShowPickupWidget(false);
 	}
-	
+
 	OverlappingWeapon = Weapon;//此变量被标记为复制变量，ue会先调用GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &OutLifetimeProps)函数进行复制
 	//然后调用OnRep_OverlappingWeapon(AWeapon* LastWeapon)函数处理后续逻辑
 
@@ -653,15 +628,6 @@ void ABlasterCharacter::SpawDefaultWeapon()
 	}
 }
 
-void ABlasterCharacter::PlaySwapMontage()
-{
-	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (AnimInstance && SwapMontage)
-	{
-		AnimInstance->Montage_Play(SwapMontage);
-	}
-}
-
 void ABlasterCharacter::DropOrDestroyWeapon(AWeapon* Weapon)
 {
 	if (Weapon == nullptr) return;
@@ -677,15 +643,8 @@ void ABlasterCharacter::DropOrDestroyWeapon(AWeapon* Weapon)
 
 void ABlasterCharacter::DropOrDestroyWeapons()
 {
-	if (Combat)
+	if (Combat && Combat->EquippedWeapon)
 	{
-		if (Combat->EquippedWeapon)
-		{
-			DropOrDestroyWeapon(Combat->EquippedWeapon);
-		}
-		if (Combat->SecondaryWeapon)
-		{
-			DropOrDestroyWeapon(Combat->SecondaryWeapon);
-		}
+		DropOrDestroyWeapon(Combat->EquippedWeapon);
 	}
 }

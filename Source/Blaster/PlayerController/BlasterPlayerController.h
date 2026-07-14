@@ -91,6 +91,8 @@ private:
 	bool bInitializeDefeats = false;
 	float HUDMatchCountdown;
 	bool bInitializeMatchCountdown = false;
+	int32 HUDCarriedAmmo;
+	bool bInitializeCarriedAmmo = false;
 
 	FString GetInfoText(const TArray<class ABlasterPlayerState*>& Players);
 };

@@ -143,6 +143,11 @@ void ABlasterPlayerController::SetHUDCarriedAmmo(int32 Ammo)
 		FString AmmoText = FString::Printf(TEXT("%d"), Ammo);
 		BlasterHud->CharacterOverlay->CarriedAmmoAmount->SetText(FText::FromString(AmmoText));
 	}
+	else
+	{
+		bInitializeCarriedAmmo = true;
+		HUDCarriedAmmo = Ammo;
+	}
 }
 
 void ABlasterPlayerController::SetHUDMatchCountdown(float CountdownTime)
@@ -459,6 +464,7 @@ void ABlasterPlayerController::PollInit()//推送缓存数据
 					if (bInitializeShield) SetHUDShield(HUDShield, HUDMaxShield);
 				if (bInitializeDefeats) SetHUDDefeats(HUDDefeats);
 				if (bInitializeMatchCountdown) SetHUDMatchCountdown(HUDMatchCountdown);
+				if (bInitializeCarriedAmmo) SetHUDCarriedAmmo(HUDCarriedAmmo);
 			}
 		}
 	}

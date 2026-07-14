@@ -29,16 +29,7 @@ void UCombatComponent::EquipWeapon(AWeapon *WeaponToEquip)//此函数从始至�
 	if(Character==NULL)return;
 	if(WeaponToEquip==NULL)return;
 	if (CombatState != ECombatState::ECS_Unoccupied) return;
-
-	if (EquippedWeapon != nullptr && SecondaryWeapon == nullptr)
-	{
-		EquipSecondaryWeapon(WeaponToEquip);
-	}
-	else
-	{
-		EquipPrimaryWeapon(WeaponToEquip);
-	}
-
+	EquipPrimaryWeapon(WeaponToEquip);
 	Character->GetCharacterMovement()->bOrientRotationToMovement = false;
 	Character->bUseControllerRotationYaw = true;
 }
@@ -55,16 +46,6 @@ void UCombatComponent::EquipPrimaryWeapon(AWeapon* WeaponToEquip)
 	UpdateCarriedAmmo();
 	PlayEquipWeaponSound(WeaponToEquip);
 	ReloadEmptyWeapon();
-}
-
-void UCombatComponent::EquipSecondaryWeapon(AWeapon* WeaponToEquip)
-{
-	if (WeaponToEquip == nullptr) return;
-	SecondaryWeapon = WeaponToEquip;
-	SecondaryWeapon->SetWeaponState(EWeaponState::EWS_EquippedSecondary);
-	AttachActorToBackpack(WeaponToEquip);
-	PlayEquipWeaponSound(WeaponToEquip);
-	SecondaryWeapon->SetOwner(Character);
 }
 
 void UCombatComponent::PlayEquipWeaponSound(AWeapon* WeaponToEquip)
@@ -111,59 +92,6 @@ void UCombatComponent::AttachActorToLeftHand(AActor* ActorToAttach)
 	}
 }
 
-void UCombatComponent::AttachActorToBackpack(AActor* ActorToAttach)
-{
-	if (Character == nullptr || Character->GetMesh() == nullptr || ActorToAttach == nullptr) return;
-	const USkeletalMeshSocket* BackpackSocket = Character->GetMesh()->GetSocketByName(FName("BackpackSocket"));
-	if (BackpackSocket)
-	{
-		BackpackSocket->AttachActor(ActorToAttach, Character->GetMesh());
-	}
-}
-
-void UCombatComponent::SwapWeapons()
-{
-	if (CombatState != ECombatState::ECS_Unoccupied || Character == nullptr || !Character->HasAuthority()) return;
-
-	Character->PlaySwapMontage();
-	CombatState = ECombatState::ECS_SwappingWeapons;
-	Character->bFinishedSwapping = false;
-	if (SecondaryWeapon) SecondaryWeapon->EnableCustomDepth(false);
-}
-
-bool UCombatComponent::ShouldSwapWeapons()
-{
-	return (EquippedWeapon != nullptr && SecondaryWeapon != nullptr);
-}
-
-void UCombatComponent::FinishSwap()
-{
-	if (Character && Character->HasAuthority())
-	{
-		CombatState = ECombatState::ECS_Unoccupied;
-	}
-	if (Character) Character->bFinishedSwapping = true;
-	if (SecondaryWeapon) SecondaryWeapon->EnableCustomDepth(true);
-}
-
-void UCombatComponent::FinishSwapAttachWeapons()
-{
-	PlayEquipWeaponSound(SecondaryWeapon);
-
-	if (Character == nullptr || !Character->HasAuthority()) return;
-	AWeapon* TempWeapon = EquippedWeapon;
-	EquippedWeapon = SecondaryWeapon;
-	SecondaryWeapon = TempWeapon;
-
-	EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
-	AttachActorToRightHand(EquippedWeapon);
-	EquippedWeapon->SetHUDAmmo();
-	UpdateCarriedAmmo();
-
-	SecondaryWeapon->SetWeaponState(EWeaponState::EWS_EquippedSecondary);
-	AttachActorToBackpack(SecondaryWeapon);
-}
-
 void UCombatComponent::ReloadEmptyWeapon()
 {
 	if (EquippedWeapon && EquippedWeapon->IsEmpty())
@@ -175,6 +103,8 @@ void UCombatComponent::ReloadEmptyWeapon()
 void UCombatComponent::Reload()
 {
 	if (CarriedAmmo > 0 && CombatState != ECombatState::ECS_Reloading && EquippedWeapon && !EquippedWeapon->IsFull() && !bLocallyReloading) {
+		// 客户端预测：纯客户端立即播放换弹动画；服务器由 ServerReload RPC 内触发避免重复
+		if (!Character->HasAuthority()) HandReload();
 		ServerReload();
 		bLocallyReloading = true;
 	}
@@ -235,16 +165,6 @@ void UCombatComponent::OnRep_EquippedWeapon()
 		PlayEquipWeaponSound(EquippedWeapon);
 		EquippedWeapon->EnableCustomDepth(false);
 		EquippedWeapon->SetHUDAmmo();
-	}
-}
-
-void UCombatComponent::OnRep_SecondaryWeapon()
-{
-	if (SecondaryWeapon && Character)
-	{
-		SecondaryWeapon->SetWeaponState(EWeaponState::EWS_EquippedSecondary);
-		AttachActorToBackpack(SecondaryWeapon);
-		PlayEquipWeaponSound(EquippedWeapon);
 	}
 }
 
@@ -608,7 +528,6 @@ void UCombatComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &Out
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UCombatComponent, EquippedWeapon);
-	DOREPLIFETIME(UCombatComponent, SecondaryWeapon);
 	DOREPLIFETIME(UCombatComponent, bAiming);
 	DOREPLIFETIME_CONDITION(UCombatComponent, CarriedAmmo,COND_OwnerOnly);
 	DOREPLIFETIME(UCombatComponent, CombatState);
@@ -646,12 +565,6 @@ void UCombatComponent::OnRep_CombatState()
 		if (bFireButtonPressed)
 		{
 			Fire();
-		}
-		break;
-	case ECombatState::ECS_SwappingWeapons:
-		if (Character && !Character->IsLocallyControlled())
-		{
-			Character->PlaySwapMontage();
 		}
 		break;
 	}
