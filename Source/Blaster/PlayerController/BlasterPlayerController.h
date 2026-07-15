@@ -7,6 +7,8 @@
 #include "BlasterPlayerController.generated.h"
 
 class ABlasterHud;
+class USoundCue;
+enum class EThrowableType : uint8;
 
 UCLASS()
 class BLASTER_API ABlasterPlayerController : public APlayerController
@@ -39,6 +41,23 @@ void SetHUDMatchCountdown(float CountdownTime);
 	void ShowBuyMenu();
 	void HideBuyMenu();
 	void ToggleBuyMenu();
+
+	// 投掷物选择面板：按住 G 键显示，点击图标确认选择
+	void ShowThrowablePanel();
+	void HideThrowablePanel();
+
+	// 点击选中回调：由 ThrowableSelectionWheel 的 OnTypeClicked 委托触发
+	UFUNCTION()
+	void OnThrowableTypeClicked(EThrowableType Type);
+
+	// 投掷物烹饪倒计时 HUD 推送：每帧由 ThrowableComponent::TickComponent 调用
+	// bIsCooking=true → RemainingSeconds 为剩余秒数（如 1.3），显示倒计时文本
+	// bIsCooking=false → 隐藏倒计时文本
+	void SetHUDThrowableCooking(bool bIsCooking, float RemainingSeconds);
+
+	// 闪光弹致盲 Client RPC：服务器调用，客户端触发全屏白屏淡出
+	UFUNCTION(Client, Reliable)
+	void ClientApplyFlashEffect(float Duration);
 
 	float SingleTripTime = 0.f;
 
@@ -111,6 +130,21 @@ private:
 
 	// 购买菜单是否正在显示，ShowBuyMenu/HideBuyMenu 维护此标志
 	bool bBuyMenuOpen = false;
+
+	// 投掷物径向选择面板是否正在显示，ShowThrowablePanel/HideThrowablePanel 维护此标志
+	bool bThrowablePanelOpen = false;
+
+	// 闪光弹配置
+	UPROPERTY(EditAnywhere, Category = "Throwable|Flashbang")
+	USoundCue* FlashbangTinnitusSound;
+
+	// 闪光弹白屏淡出状态
+	FTimerHandle FlashFadeTimer;
+	float FlashEffectStartTime = 0.f;
+	float FlashEffectDuration = 0.f;
+
+	// 每帧更新白屏透明度，Alpha ≤ 0 时隐藏 FlashOverlay
+	void TickFlashFade();
 
 	FString GetInfoText(const TArray<class ABlasterPlayerState*>& Players);
 };

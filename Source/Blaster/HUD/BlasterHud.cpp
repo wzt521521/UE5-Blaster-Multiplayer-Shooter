@@ -5,6 +5,7 @@
 #include "Characteroverlay.h"
 #include "Announcement.h"
 #include "BuyMenu.h"
+#include "ThrowableSelectionWheel.h"
 #include "GameFramework/PlayerController.h"
 void ABlasterHud::DrawHUD()
 {
@@ -116,5 +117,17 @@ void ABlasterHud::CreateBuyMenu()
 	{
 		BuyMenu = CreateWidget<UBuyMenu>(PlayerController, BuyMenuClass);
 		// 不调用 AddToViewport()，由 PlayerController::ShowBuyMenu() 控制显示时机
+	}
+}
+
+void ABlasterHud::CreateThrowableWheel()
+{
+	// 防御：已存在则跳过，避免重复创建
+	if (ThrowableWheel) return;
+
+	APlayerController* PlayerController = GetOwningPlayerController();
+	if (PlayerController && ThrowableWheelClass)
+	{
+		ThrowableWheel = CreateWidget<UThrowableSelectionWheel>(PlayerController, ThrowableWheelClass);
 	}
 }

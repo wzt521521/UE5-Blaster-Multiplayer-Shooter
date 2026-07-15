@@ -9,6 +9,7 @@ class UTexture2D;
 class UCharacteroverlay;
 class UUserWidget;
 class UBuyMenu;
+class UThrowableSelectionWheel;
 
 // 准星绘制所需的数据包，由武器传递给HUD
 USTRUCT(BlueprintType)
@@ -66,6 +67,16 @@ public:
 	class UBuyMenu* BuyMenu;
 
 	void CreateBuyMenu();
+
+	// 投掷物径向选择面板蓝图类，蓝图中配置，运行时由 CreateThrowableWheel() 实例化
+	UPROPERTY(EditAnywhere, Category = "Player HUD")
+	TSubclassOf<UUserWidget> ThrowableWheelClass;
+
+	// 投掷物径向选择面板运行时实例指针，ShowThrowablePanel 前懒创建
+	UPROPERTY()
+	UThrowableSelectionWheel* ThrowableWheel;
+
+	void CreateThrowableWheel();
 
 private:
 

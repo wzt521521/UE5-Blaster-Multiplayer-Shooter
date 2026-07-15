@@ -7,6 +7,7 @@
 #include "Blaster/Interafaces/InteractWithCrosshairsInterface.h"
 #include "GameFramework/Character.h"
 #include "Blaster/BlasterTypes/CombatState.h"
+#include "Blaster/BlasterTypes/ThrowableTypes.h"
 #include "BlasterCharacter.generated.h"
 class ABlasterPlayerController;
 class ABlasterPlayerState;
@@ -62,6 +63,11 @@ protected:
 	virtual void Jump() override;
 	void FireButtonPressed();
 	void FireButtonReleased();
+	void ThrowableWheelToggle();    // G 键按下 → 切换投掷物选择面板开/关
+public:
+	// 由径向面板 Widget 调用（通过 PlayerController → Pawn）
+	void SelectThrowableType(EThrowableType Type);
+protected:
 	UFUNCTION()
 	void ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, 
 		AController* InstigatorController, AActor* DamageCauser);
@@ -110,6 +116,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UBuffComponent* Buff;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
+	class UThrowableComponent* Throwable;
 
 	UFUNCTION(Server, Reliable)
 	void ServerEquipButtonPressed();
@@ -205,6 +214,7 @@ public:
 	ECombatState GetCombatState() const;
 	FORCEINLINE class UCombatComponent* GetCombat() const { return Combat; }
 	FORCEINLINE class UBuffComponent* GetBuff() const { return Buff; }
+	FORCEINLINE class UThrowableComponent* GetThrowable() const { return Throwable; }
 	FORCEINLINE UAnimMontage* GetReloadMontage() const { return ReloadMontage; }
 
 };

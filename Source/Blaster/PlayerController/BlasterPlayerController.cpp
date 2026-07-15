@@ -6,9 +6,13 @@
 #include "Blaster/HUD/Characteroverlay.h"
 #include "Blaster/HUD/Announcement.h"
 #include "Blaster/HUD/BuyMenu.h"
+#include "Blaster/HUD/ThrowableSelectionWheel.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
+#include "Components/Image.h"
+#include "Sound/SoundCue.h"
 #include "Blaster/Character/BlasterCharacter.h"
+#include "Blaster/BlasterComponents/ThrowableComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Blaster/GameMode/BlasterGameMode.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
@@ -495,6 +499,151 @@ void ABlasterPlayerController::HideBuyMenu()
 	SetShowMouseCursor(false);
 
 	bBuyMenuOpen = false;
+}
+
+// ------------------------------------------------------------
+// 投掷物选择面板生命周期：按住 G 显示，点击图标确认选择，松开 G 关闭（取消）
+// ------------------------------------------------------------
+void ABlasterPlayerController::ShowThrowablePanel()
+{
+	// Toggle：面板已打开则关闭（取消选择），未打开则打开
+	if (bThrowablePanelOpen)
+	{
+		HideThrowablePanel();
+		return;
+	}
+
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	if (BlasterHud == nullptr) return;
+
+	// 懒创建：首次按 G 时才实例化 widget
+	if (BlasterHud->ThrowableWheel == nullptr)
+	{
+		BlasterHud->CreateThrowableWheel();
+	}
+	if (BlasterHud->ThrowableWheel == nullptr) return;
+
+	ABlasterCharacter* BlasterCharacter = Cast<ABlasterCharacter>(GetPawn());
+	if (!BlasterCharacter) return;
+
+	UThrowableComponent* ThrowableComp = BlasterCharacter->GetThrowable();
+	if (!ThrowableComp) return;
+
+	// 绑定点击委托：点击按钮 → OnThrowableTypeClicked → 选择类型 + 关闭面板
+	BlasterHud->ThrowableWheel->OnTypeClicked.AddDynamic(this, &ABlasterPlayerController::OnThrowableTypeClicked);
+
+	BlasterHud->ThrowableWheel->AddToViewport();
+	BlasterHud->ThrowableWheel->Show(ThrowableComp);
+
+	// 显示鼠标用于点击选择
+	FInputModeGameAndUI InputMode;
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	SetInputMode(InputMode);
+	SetShowMouseCursor(true);
+
+	bThrowablePanelOpen = true;
+}
+
+void ABlasterPlayerController::HideThrowablePanel()
+{
+	if (!bThrowablePanelOpen) return;
+
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	if (BlasterHud == nullptr || BlasterHud->ThrowableWheel == nullptr) return;
+
+	// 解除委托绑定，避免悬空引用
+	BlasterHud->ThrowableWheel->OnTypeClicked.RemoveDynamic(this, &ABlasterPlayerController::OnThrowableTypeClicked);
+
+	BlasterHud->ThrowableWheel->Hide();
+	BlasterHud->ThrowableWheel->RemoveFromParent();
+
+	// 恢复纯游戏输入
+	FInputModeGameOnly InputMode;
+	SetInputMode(InputMode);
+	SetShowMouseCursor(false);
+
+	bThrowablePanelOpen = false;
+}
+
+void ABlasterPlayerController::OnThrowableTypeClicked(EThrowableType Type)
+{
+	// 点击即确认：通知角色切换投掷物类型，然后关闭面板
+	ABlasterCharacter* BlasterCharacter = Cast<ABlasterCharacter>(GetPawn());
+	if (BlasterCharacter)
+	{
+		BlasterCharacter->SelectThrowableType(Type);
+	}
+
+	HideThrowablePanel();
+}
+
+void ABlasterPlayerController::SetHUDThrowableCooking(bool bIsCooking, float RemainingSeconds)
+{
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	bool bHUDValid = BlasterHud && BlasterHud->CharacterOverlay
+		&& BlasterHud->CharacterOverlay->ThrowableCountdownText;
+
+	if (bHUDValid)
+	{
+		if (bIsCooking && RemainingSeconds > 0.f)
+		{
+			FString CountdownText = FString::Printf(TEXT("%.1f"), RemainingSeconds);
+			BlasterHud->CharacterOverlay->ThrowableCountdownText->SetText(FText::FromString(CountdownText));
+			BlasterHud->CharacterOverlay->ThrowableCountdownText->SetVisibility(ESlateVisibility::Visible);
+		}
+		else
+		{
+			BlasterHud->CharacterOverlay->ThrowableCountdownText->SetVisibility(ESlateVisibility::Hidden);
+		}
+	}
+}
+
+// ========================================================================
+// 闪光弹致盲 Client RPC + 白屏淡出
+// ========================================================================
+
+void ABlasterPlayerController::ClientApplyFlashEffect_Implementation(float Duration)
+{
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	if (!BlasterHud || !BlasterHud->CharacterOverlay || !BlasterHud->CharacterOverlay->FlashOverlay) return;
+
+	BlasterHud->CharacterOverlay->FlashOverlay->SetVisibility(ESlateVisibility::Visible);
+	BlasterHud->CharacterOverlay->FlashOverlay->SetRenderOpacity(1.0f);
+
+	if (FlashbangTinnitusSound)
+	{
+		UGameplayStatics::PlaySound2D(this, FlashbangTinnitusSound);
+	}
+
+	FlashEffectStartTime = GetWorld()->GetTimeSeconds();
+	FlashEffectDuration = Duration;
+
+	GetWorldTimerManager().SetTimer(
+		FlashFadeTimer,
+		this,
+		&ABlasterPlayerController::TickFlashFade,
+		0.05f,
+		true
+	);
+}
+
+void ABlasterPlayerController::TickFlashFade()
+{
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	if (!BlasterHud || !BlasterHud->CharacterOverlay || !BlasterHud->CharacterOverlay->FlashOverlay) return;
+
+	const float Elapsed = GetWorld()->GetTimeSeconds() - FlashEffectStartTime;
+	const float Alpha = 1.0f - Elapsed / FlashEffectDuration;
+
+	if (Alpha <= 0.f)
+	{
+		BlasterHud->CharacterOverlay->FlashOverlay->SetVisibility(ESlateVisibility::Hidden);
+		GetWorldTimerManager().ClearTimer(FlashFadeTimer);
+	}
+	else
+	{
+		BlasterHud->CharacterOverlay->FlashOverlay->SetRenderOpacity(Alpha);
+	}
 }
 
 FString ABlasterPlayerController::GetInfoText(const TArray<class ABlasterPlayerState*>& Players)

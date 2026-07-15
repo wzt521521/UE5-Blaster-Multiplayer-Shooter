@@ -32,7 +32,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Blaster/HUD/BlasterHud.h"
-#include "Blaster/Weapon/WeaponTypes.h"
+#include "Blaster/WeaponSystem/Weapon/WeaponTypes.h"
 #include "Blaster/BlasterTypes/CombatState.h"
 #include "CombatComponent.generated.h"
 

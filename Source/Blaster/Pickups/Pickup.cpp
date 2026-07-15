@@ -4,7 +4,7 @@
 #include "NiagaraFunctionLibrary.h"
 #include "Sound/SoundCue.h"
 #include "Kismet/GameplayStatics.h"
-#include "Blaster/Weapon/WeaponTypes.h"
+#include "Blaster/WeaponSystem/Weapon/WeaponTypes.h"
 
 APickup::APickup()
 {

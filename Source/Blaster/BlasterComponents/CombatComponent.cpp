@@ -3,8 +3,8 @@
 
 #include "CombatComponent.h"
 #include "../Character/BlasterCharacter.h"
-#include "Blaster/Weapon/Weapon.h"
-#include "Blaster/Weapon/Shotgun.h"
+#include "Blaster/WeaponSystem/Weapon/Weapon.h"
+#include "Blaster/WeaponSystem/Weapon/Shotgun.h"
 #include "Camera/CameraComponent.h"
 #include "Engine/SkeletalMeshSocket.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -13,7 +13,7 @@
 #include "TimerManager.h"
 #include "DrawDebugHelpers.h"
 #include "../PlayerController/BlasterPlayerController.h"
-#include "Blaster/Weapon/Projectile.h"
+#include "Blaster/WeaponSystem/Projectile/Projectile.h"
 
 UCombatComponent::UCombatComponent()
 {

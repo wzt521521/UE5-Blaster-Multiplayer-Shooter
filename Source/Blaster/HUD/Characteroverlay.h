@@ -8,6 +8,7 @@
 
 class UProgressBar;
 class UTextBlock;
+class UImage;
 
 /**
  * 角色状态覆盖层（血条、子弹数等），直接绑定了蓝图中的同名控件
@@ -48,4 +49,12 @@ public:
 	// 由 BlasterPlayerController::SetHUDMismatchNotification 设置，2秒后自动隐藏
 	UPROPERTY(meta = (BindWidget))
 	UTextBlock* MismatchNotificationText;
+
+	// 投掷物烹饪倒计时文本（如 "4.2"），烹饪时可见，其他状态隐藏
+	UPROPERTY(meta = (BindWidget))
+	UTextBlock* ThrowableCountdownText;
+
+	// 全屏白色覆盖层，默认 Hidden，闪光弹爆炸时显示并淡出
+	UPROPERTY(meta = (BindWidget))
+	UImage* FlashOverlay;
 };

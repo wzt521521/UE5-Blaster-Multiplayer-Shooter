@@ -6,9 +6,10 @@
 #include "Components/WidgetComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Net/UnrealNetwork.h"
-#include "../Weapon/Weapon.h"
+#include "../WeaponSystem/Weapon/Weapon.h"
 #include "../BlasterComponents/CombatComponent.h"
 #include "Blaster/BlasterComponents/BuffComponent.h"
+#include "Blaster/BlasterComponents/ThrowableComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Blaster/Blaster.h"
 #include "Kismet/KismetMathLibrary.h"
@@ -16,7 +17,7 @@
 #include "../PlayerController/BlasterPlayerController.h"
 #include "Blaster/GameMode/BlasterGameMode.h"
 #include "TimerManager.h"
-#include "Blaster/Weapon/WeaponTypes.h"
+#include "Blaster/WeaponSystem/Weapon/WeaponTypes.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
 #include "Blaster/Pickups/AmmoPickup.h"  // OverlappingAmmo 追踪 + ServerPickupAmmo RPC
 
@@ -45,6 +46,9 @@ ABlasterCharacter::ABlasterCharacter()
 
 	Buff = CreateDefaultSubobject<UBuffComponent>(TEXT("BuffComponent"));
 	Buff->SetIsReplicated(true);
+
+	Throwable = CreateDefaultSubobject<UThrowableComponent>(TEXT("ThrowableComponent"));
+	Throwable->SetIsReplicated(true);
 
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
@@ -97,6 +101,8 @@ void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	PlayerInputComponent->BindAction("Fire", IE_Released, this, &ABlasterCharacter::FireButtonReleased);
 
 	PlayerInputComponent->BindAction("Reload", IE_Pressed, this, &ABlasterCharacter::ReloadButtonPressed);
+
+	PlayerInputComponent->BindAction("ThrowableWheel", IE_Pressed, this, &ABlasterCharacter::ThrowableWheelToggle);
 }
 
 void ABlasterCharacter::PostInitializeComponents()
@@ -113,6 +119,11 @@ void ABlasterCharacter::PostInitializeComponents()
 	{
 		Buff->SetInitialSpeeds(GetCharacterMovement()->MaxWalkSpeed, GetCharacterMovement()->MaxWalkSpeedCrouched);
 		Buff->SetInitialJumpVelocity(GetCharacterMovement()->JumpZVelocity);
+	}
+
+	if (Throwable)
+	{
+		Throwable->Character = this;
 	}
 }
 
@@ -284,7 +295,12 @@ void ABlasterCharacter::EquipButtonPressed()
 	// E 键统管武器拾取和弹药拾取，战斗状态空闲时才允许操作
 	if (Combat && Combat->CombatState == ECombatState::ECS_Unoccupied)
 	{
-		// 优先级：武器 > 弹药（同时重叠两种拾取物时先装备武器）
+		// 捡武器时退出投掷模式
+		if (OverlappingWeapon && Throwable && Throwable->IsThrowableEquipped())
+		{
+			Throwable->UnequipThrowable();
+		}
+
 		if (OverlappingWeapon)
 		{
 			ServerEquipButtonPressed();
@@ -387,15 +403,27 @@ void ABlasterCharacter::Jump()
 
 void ABlasterCharacter::FireButtonPressed()
 {
-	if(Combat)
+	// 投掷模式优先：按住左键蓄力而非开火
+	if (Throwable && Throwable->IsThrowableEquipped())
 	{
-		Combat->FireButtonPressed(true);//由combat组件处理开火逻辑，参数 true 表示按下开火键
+		Throwable->StartCooking();
+		return;
+	}
+	if (Combat)
+	{
+		Combat->FireButtonPressed(true);
 	}
 }
 
 void ABlasterCharacter::FireButtonReleased()
 {
-	if(Combat)
+	// 投掷模式优先：松开左键投出
+	if (Throwable && Throwable->IsCooking())
+	{
+		Throwable->ExecuteThrow();
+		return;
+	}
+	if (Combat)
 	{
 		Combat->FireButtonPressed(false);
 	}
@@ -676,6 +704,8 @@ AWeapon* ABlasterCharacter::GetEquippedWeapon() const
 
 ECombatState ABlasterCharacter::GetCombatState() const
 {
+	// 投掷忙碌时返回 Throwing，阻止武器系统开枪/换弹
+	if (Throwable && !Throwable->IsIdle()) return ECombatState::ECS_Throwing;
 	if (Combat == nullptr) return ECombatState::ECS_Unoccupied;
 	return Combat->CombatState;
 }
@@ -704,6 +734,31 @@ void ABlasterCharacter::SpawDefaultWeapon()
 		{
 			Combat->EquipWeapon(StartingWeapon);
 		}
+	}
+}
+
+// ===== 投掷物径向选择面板 =====
+
+void ABlasterCharacter::ThrowableWheelToggle()
+{
+	if (!Throwable || Throwable->IsCooking()) return;
+
+	BlasterPlayerController = BlasterPlayerController == nullptr
+		? Cast<ABlasterPlayerController>(Controller) : BlasterPlayerController;
+
+	if (BlasterPlayerController)
+	{
+		BlasterPlayerController->ShowThrowablePanel();
+	}
+}
+
+void ABlasterCharacter::SelectThrowableType(EThrowableType Type)
+{
+	// 由选择面板 Widget 点击 → PlayerController → 此处调用
+	// 装备投掷物并播放拿在手里的动画
+	if (Throwable && Type != EThrowableType::ETT_None && Type != EThrowableType::ETT_MAX)
+	{
+		Throwable->EquipThrowable(Type);
 	}
 }
 

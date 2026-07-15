@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Pickup.h"
-#include "Blaster/Weapon/WeaponTypes.h"
+#include "Blaster/WeaponSystem/Weapon/WeaponTypes.h"
 #include "AmmoPickup.generated.h"
 
 // 前置声明：避免循环引用，BlasterCharacter.h 也引用 AAmmoPickup
