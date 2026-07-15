@@ -81,7 +81,8 @@ protected:
 	void SpawnThrowable(const FVector& AimTarget, float RemainingFuse);
 	void TransitionTo(EThrowableState NewState);
 	void CookTimerExpired();
-	void ExplodeInHand();  // 蓄力定时器到期 → 在手中生成投射物并立即爆炸
+	void ExplodeInHand();     // 蓄力定时器到期 → 在手中生成投射物并立即爆炸
+	void DelayedThrow_Internal(); // 延迟投出回调（由 ExecuteThrow 的 Timer 触发）
 
 private:
 	UPROPERTY()
@@ -102,8 +103,16 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Throwable|Config")
 	float ThrowCooldown = 0.5f;
 
+	// 松开左键到实际投出之间的延迟（配合投掷动画释放帧）
+	UPROPERTY(EditAnywhere, Category = "Throwable|Config")
+	float ThrowDelayTime = 0.5f;
+
 	UPROPERTY(EditAnywhere, Category = "Throwable|Config")
 	FName HandSocketName = FName("RightHandSocket");
+
+	// 轨迹预测起点插槽（可偏右上，实现预测线平移效果，与手雷实际生成位置分离）
+	UPROPERTY(EditAnywhere, Category = "Throwable|Config")
+	FName ThrowSocketName = FName("ThrowSocket");
 
 	// ===== 复制状态（仅服务器写入）=====
 	UPROPERTY(ReplicatedUsing = OnRep_ThrowState)
@@ -131,6 +140,9 @@ private:
 	float CookStartTime;
 	FTimerHandle CooldownTimer;
 	FTimerHandle CookTimer;
+	FTimerHandle ThrowDelayTimer; // 延迟投出定时器
+
+	FVector_NetQuantize CachedAimTarget; // 松手瞬间锁定的瞄准点，防止 0.5s 延迟期间准星漂移
 
 	// 从当前选中类型 CDO 缓存的参数（非复制，选型时更新）
 	float CurrentMaxCookTime = 0.f;           // 当前类型蓄力最大时间

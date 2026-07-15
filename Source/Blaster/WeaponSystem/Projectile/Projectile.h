@@ -52,11 +52,18 @@ protected:
 	UPROPERTY(EditAnywhere)
 	class USoundCue* ImpactSound;
 
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(EditAnywhere, Category = "Projectile|VFX")
 	class UParticleSystem* TrailSystem;
 
 	UPROPERTY()
 	class UParticleSystemComponent* TrailSystemComponent;
+
+	// Niagara 版尾迹（优先级高于 TrailSystem，两者互斥）
+	UPROPERTY(EditAnywhere, Category = "Projectile|VFX")
+	class UNiagaraSystem* TrailNiagaraSystem;
+
+	UPROPERTY()
+	class UNiagaraComponent* TrailNiagaraComponent;
 
 	// ===== 伤害 =====
 	UPROPERTY(EditAnywhere)

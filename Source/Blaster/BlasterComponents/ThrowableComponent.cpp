@@ -8,6 +8,7 @@
 #include "Engine/SkeletalMeshSocket.h"
 #include "Kismet/GameplayStatics.h"
 #include "DrawDebugHelpers.h"
+#include "Engine/Engine.h"
 
 UThrowableComponent::UThrowableComponent()
 {
@@ -43,21 +44,21 @@ void UThrowableComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 					PC->SetHUDThrowableCooking(true, Remaining);
 				}
 
-				// 预测轨迹线绘制
-				const USkeletalMeshSocket* HandSocket = Character->GetMesh()->GetSocketByName(HandSocketName);
-				if (HandSocket)
+				// 预测轨迹线起点使用 ThrowSocket（可偏离手部实现平移效果）
+				const USkeletalMeshSocket* ThrowSocket = Character->GetMesh()->GetSocketByName(ThrowSocketName);
+				if (ThrowSocket)
 				{
-					const FVector HandLocation = HandSocket->GetSocketTransform(Character->GetMesh()).GetLocation();
+					const FVector ThrowLocation = ThrowSocket->GetSocketTransform(Character->GetMesh()).GetLocation();
 					const FVector AimTarget = Character->GetActorLocation() + Character->GetActorForwardVector() * 1000.f;
 
-					FVector Direction = (AimTarget - HandLocation).GetSafeNormal();
+					FVector Direction = (AimTarget - ThrowLocation).GetSafeNormal();
 					const float UpwardRads = FMath::DegreesToRadians(CurrentThrowAngle);
 					Direction.Z += FMath::Sin(UpwardRads);
 					Direction.Normalize();
 					const FVector LaunchVelocity = Direction * CurrentThrowSpeed;
 
 					FPredictProjectilePathParams PathParams;
-					PathParams.StartLocation = HandLocation;
+					PathParams.StartLocation = ThrowLocation;
 					PathParams.LaunchVelocity = LaunchVelocity;
 					PathParams.ProjectileRadius = 5.f;
 					PathParams.MaxSimTime = 3.f;
@@ -181,25 +182,44 @@ void UThrowableComponent::StartCooking()
 
 void UThrowableComponent::ExecuteThrow()
 {
-	if (ThrowState != EThrowableState::ETS_Cooking) return;
+	if (ThrowState != EThrowableState::ETS_Cooking)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, FString::Printf(TEXT("[投掷失败] 状态不对 ThrowState=%d (需要Cooking)"), (int32)ThrowState));
+		return;
+	}
 
 	GetWorld()->GetTimerManager().ClearTimer(CookTimer);
 
+	// 动画立即播放，但实际投出延迟 0.5s（配合动画手部释放帧）
 	if (ThrowMontage && Character)
 	{
 		Character->PlayAnimMontage(ThrowMontage);
 	}
 
-	// 客户端乐观预测：先切 Throwing，等服务器 RPC 复制回 Idle
+	// 客户端乐观预测：先切 Throwing
 	if (!Character->HasAuthority())
 	{
 		TransitionTo(EThrowableState::ETS_Throwing);
 	}
 
-	FVector AimTarget = Character->GetActorLocation() + Character->GetActorForwardVector() * 1000.f;
-	ServerThrow(AimTarget);  // 服务器检查 Cooking 状态，内部 TransitionTo(Idle)
+	// 松手瞬间锁定瞄准点，防止延迟期间准星漂移
+	CachedAimTarget = Character->GetActorLocation() + Character->GetActorForwardVector() * 1000.f;
 
 	bThrowableEquipped = false;
+
+	// 延迟 0.5s 后实际投出
+	GetWorld()->GetTimerManager().SetTimer(
+		ThrowDelayTimer,
+		this,
+		&UThrowableComponent::DelayedThrow_Internal,
+		ThrowDelayTime,
+		false
+	);
+}
+
+void UThrowableComponent::DelayedThrow_Internal()
+{
+	ServerThrow(CachedAimTarget);  // 服务器检查 Cooking 状态，内部 SpawnThrowable + TransitionTo(Idle)
 }
 
 void UThrowableComponent::CancelCooking()
@@ -207,6 +227,7 @@ void UThrowableComponent::CancelCooking()
 	if (ThrowState != EThrowableState::ETS_Cooking) return;
 
 	GetWorld()->GetTimerManager().ClearTimer(CookTimer);
+	GetWorld()->GetTimerManager().ClearTimer(ThrowDelayTimer); // 取消延迟投出
 	TransitionTo(EThrowableState::ETS_Idle);
 
 	if (!Character->HasAuthority())

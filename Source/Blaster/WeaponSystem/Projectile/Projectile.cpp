@@ -7,6 +7,9 @@
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Particles/ParticleSystemComponent.h"
 #include "Particles/ParticleSystem.h"
+#include "NiagaraSystem.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
 #include "Sound/SoundCue.h"
 #include "Blaster/Character/BlasterCharacter.h"
 #include "Blaster/Blaster.h"
@@ -58,10 +61,22 @@ void AProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimi
 	Destroy();
 }
 
-// 生成尾迹粒子（Cascade 粒子系统），供火箭子类调用
+// 生成尾迹粒子，Niagara 优先于 Cascade
 void AProjectile::SpawnTrailSystem()
 {
-	if (TrailSystem)
+	if (TrailNiagaraSystem)
+	{
+		TrailNiagaraComponent = UNiagaraFunctionLibrary::SpawnSystemAttached(
+			TrailNiagaraSystem,
+			GetRootComponent(),
+			FName(),
+			GetActorLocation(),
+			GetActorRotation(),
+			EAttachLocation::KeepWorldPosition,
+			true  // bAutoDestroy
+		);
+	}
+	else if (TrailSystem)
 	{
 		TrailSystemComponent = UGameplayStatics::SpawnEmitterAttached(
 			TrailSystem,
