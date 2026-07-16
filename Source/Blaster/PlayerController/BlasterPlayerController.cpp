@@ -46,6 +46,12 @@ void ABlasterPlayerController::Tick(float DeltaTime)
 	SetHUDTime();
 	CheckTimeSync(DeltaTime);
 	PollInit();
+
+	// 每帧更新客户端 ping 显示，PlayerState::GetPingInMilliseconds 引擎内置复制
+	if (GetPlayerState<APlayerState>())
+	{
+		SetHUDPing(FMath::RoundToInt(GetPlayerState<APlayerState>()->GetPingInMilliseconds()));
+	}
 }
 
 void ABlasterPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -163,6 +169,21 @@ void ABlasterPlayerController::SetHUDCarriedAmmo(int32 Ammo)
 	{
 		bInitializeCarriedAmmo = true;
 		HUDCarriedAmmo = Ammo;
+	}
+}
+
+// ------------------------------------------------------------
+// 延迟显示：每帧 Tick 读取 PlayerState::GetPingInMilliseconds()
+// 引擎内置复制，客户端直接读取即可，无需额外网络同步
+// ------------------------------------------------------------
+void ABlasterPlayerController::SetHUDPing(int32 Ping)
+{
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	bool bHUDValid = BlasterHud && BlasterHud->CharacterOverlay && BlasterHud->CharacterOverlay->PingText;
+	if (bHUDValid)
+	{
+		FString PingStr = FString::Printf(TEXT("%d ms"), Ping);
+		BlasterHud->CharacterOverlay->PingText->SetText(FText::FromString(PingStr));
 	}
 }
 

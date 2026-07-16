@@ -307,6 +307,11 @@ void ABlasterCharacter::EquipButtonPressed()
 		}
 		else if (OverlappingAmmo)
 		{
+			// 客户端预测：乐观添加备弹，避免等 RTT 才看到数字变化
+			if (!HasAuthority() && Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponType() == OverlappingAmmo->GetWeaponType())
+			{
+				Combat->EquippedWeapon->AddToSpare(OverlappingAmmo->GetAmmoAmount());
+			}
 			ServerPickupAmmo();
 		}
 	}

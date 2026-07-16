@@ -22,6 +22,7 @@ public:
 	void SetHUDWeaponAmmo(int32 Ammo);
 	void SetHUDCarriedAmmo(int32 Ammo);
 void SetHUDMatchCountdown(float CountdownTime);
+	void SetHUDPing(int32 Ping);
 
 	// 弹药类型不匹配提示：显示绿色消息2秒后自动隐藏
 	// 由 BlasterCharacter::ClientAmmoMismatchNotification RPC 调用

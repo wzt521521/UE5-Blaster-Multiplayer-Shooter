@@ -30,12 +30,12 @@ void ALobbyGameMode::PostLogin(APlayerController *NewPlayer)
         UWorld* World = GetWorld();
         if (World)
         {
-            const FString TravelMsg = TEXT("[LobbyGameMode] ServerTravel -> BlasterMap");
+            const FString TravelMsg = TEXT("[LobbyGameMode] ServerTravel -> Bomb_Defusal");
             UE_LOG(LogTemp, Warning, TEXT("%s"), *TravelMsg);
             GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Green, TravelMsg);
 
             bUseSeamlessTravel = true;
-            World->ServerTravel(FString("/Game/Maps/BlasterMap?listen"));
+            World->ServerTravel(FString("/Game/Maps/Bomb_Defusal?listen"));
         }
         else
         {

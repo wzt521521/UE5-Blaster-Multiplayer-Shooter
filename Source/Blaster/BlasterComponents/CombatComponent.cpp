@@ -106,7 +106,16 @@ void UCombatComponent::Reload()
 		&& !EquippedWeapon->IsFull()
 		&& !bLocallyReloading)
 	{
-		if (!Character->HasAuthority()) HandReload();
+		if (!Character->HasAuthority())
+		{
+			HandReload();
+			// 客户端预测：乐观装填，避免等 RTT 才看到弹药数字变化
+			int32 ReloadAmount = AmountToReload();
+			if (ReloadAmount > 0)
+			{
+				EquippedWeapon->ReloadFromSpare(ReloadAmount);
+			}
+		}
 		ServerReload();
 		bLocallyReloading = true;
 	}
