@@ -16,6 +16,7 @@
 #include "BlasterAnimInstance.h"
 #include "../PlayerController/BlasterPlayerController.h"
 #include "Blaster/GameMode/BlasterGameMode.h"
+#include "Blaster/GameMode/TeamDeathmatchGameMode.h"
 #include "TimerManager.h"
 #include "Blaster/WeaponSystem/Weapon/WeaponTypes.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
@@ -198,13 +199,18 @@ void ABlasterCharacter::Elim()
 	// 掉落所有武器
 	DropOrDestroyWeapons();
 	MulticastElim();
-	// 延迟后自动回调 ElimTimerFinished，给死亡动画留出播放时间
-	GetWorldTimerManager().SetTimer(
-		ElimTimer,                                       // FTimerHandle 句柄
-		this,                                            // 回调对象 = 当前角色
-		&ABlasterCharacter::ElimTimerFinsished,          // 回调函数
-		ElimDelay                                        // 延迟秒数
-	);
+	// 回合制模式不自动复活：由 GameMode 在新回合 CleanupBodiesAndRespawn 中统一处理
+	// Deathmatch 模式依然走 ElimTimer → ElimTimerFinished → RequestRespawn
+	ATeamDeathmatchGameMode* TDMGameMode = GetWorld()->GetAuthGameMode<ATeamDeathmatchGameMode>();
+	if (!TDMGameMode)
+	{
+		GetWorldTimerManager().SetTimer(
+			ElimTimer,
+			this,
+			&ABlasterCharacter::ElimTimerFinsished,
+			ElimDelay
+		);
+	}
 }
 
 void ABlasterCharacter::MulticastElim_Implementation()//MulticastElim只负责多播，其他逻辑由另一个Elim函数处理
@@ -248,6 +254,7 @@ void ABlasterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &Ou
 	DOREPLIFETIME_CONDITION(ABlasterCharacter, OverlappingAmmo, COND_OwnerOnly);  // 弹药重叠仅持有者感知
 	DOREPLIFETIME(ABlasterCharacter, Health);
 	DOREPLIFETIME(ABlasterCharacter, Shield);
+	DOREPLIFETIME(ABlasterCharacter, bWaitingForNextRound);
 }
 
 void ABlasterCharacter::Tick(float DeltaTime)
@@ -461,11 +468,21 @@ void ABlasterCharacter::ReceiveDamage(AActor *DamagedActor, float Damage, const 
 	PlayHitReactMontage();
 
 	if(Health <= 0.f){
-		ABlasterGameMode* BlasterGameMode = GetWorld()->GetAuthGameMode<ABlasterGameMode>();//先获取游戏模式
-		if(BlasterGameMode){
-			BlasterPlayerController = BlasterPlayerController == nullptr ? Cast<ABlasterPlayerController>(Controller) : BlasterPlayerController;
-			ABlasterPlayerController* AttackerController = Cast<ABlasterPlayerController>(InstigatorController);
-			BlasterGameMode->PlayerEliminated(this, BlasterPlayerController, AttackerController);
+		BlasterPlayerController = BlasterPlayerController == nullptr ? Cast<ABlasterPlayerController>(Controller) : BlasterPlayerController;
+		ABlasterPlayerController* AttackerController = Cast<ABlasterPlayerController>(InstigatorController);
+		// 优先路由到回合制 GameMode（新逻辑），退回到 Deathmatch GameMode（旧逻辑）
+		ATeamDeathmatchGameMode* TDMGameMode = GetWorld()->GetAuthGameMode<ATeamDeathmatchGameMode>();
+		if (TDMGameMode)
+		{
+			TDMGameMode->OnPlayerKilled(this, BlasterPlayerController, AttackerController);
+		}
+		else
+		{
+			ABlasterGameMode* BlasterGameMode = GetWorld()->GetAuthGameMode<ABlasterGameMode>();
+			if (BlasterGameMode)
+			{
+				BlasterGameMode->PlayerEliminated(this, BlasterPlayerController, AttackerController);
+			}
 		}
 	}
 	

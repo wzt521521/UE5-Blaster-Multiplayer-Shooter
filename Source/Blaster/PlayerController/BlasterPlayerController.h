@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "Blaster/BlasterTypes/TeamTypes.h"
 #include "BlasterPlayerController.generated.h"
 
 class ABlasterHud;
@@ -36,6 +37,20 @@ void SetHUDMatchCountdown(float CountdownTime);
 	void OnMatchStateSet(FName State, bool bTeamsMatch = false);
 	void HandleMatchHasStarted(bool bTeamsMatch = false);
 	void HandleCooldown();
+
+	// 回合制阵营模式：MatchState 处理
+	void HandleAssignTeams();
+	void HandleRoundPrepare();
+	void HandleRoundInProgress();
+	void HandleRoundEnd();
+	void HandleMatchEnd();
+
+	// 回合信息 HUD 推送
+	void SetHUDRoundInfo(int32 InRoundNumber, ETeamID MyTeam,
+	                     int32 AttackerWins, int32 DefenderWins);
+	void SetHUDRoundResult(ETeamID Winner, int32 AttackerWins, int32 DefenderWins);
+	void SetHUDMatchResult(ETeamID Winner);
+	void SetHUDAliveCount(int32 AttackersAlive, int32 DefendersAlive);
 
 	// 购买菜单生命周期：热身开始自动打开，B 键切换，比赛开始强制关闭
 	void OpenBuyMenuOnWarmup();

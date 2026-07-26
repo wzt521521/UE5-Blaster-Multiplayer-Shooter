@@ -12,6 +12,7 @@ void ABlasterPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
     DOREPLIFETIME(ABlasterPlayerState, Defeats);
+    DOREPLIFETIME(ABlasterPlayerState, TeamID);
 }
 
 void ABlasterPlayerState::AddToScore(float ScoreAmount)
@@ -91,6 +92,33 @@ void ABlasterPlayerState::OnRep_Defeats()
         if (Controller)
         {
             Controller->SetHUDDefeats(Defeats);
+        }
+    }
+}
+
+void ABlasterPlayerState::SetTeamID(ETeamID NewTeamID)
+{
+    // 服务器权威：更新 TeamID，引擎自动复制到客户端
+    TeamID = NewTeamID;
+    // 非服务器环境（如 Listen Server 的客户端 PS）立即走 OnRep 通知逻辑
+    if (!HasAuthority())
+    {
+        OnRep_TeamID();
+    }
+}
+
+void ABlasterPlayerState::OnRep_TeamID()
+{
+    // 客户端收到 TeamID 复制后 → 通知自身 Controller 刷新 HUD 阵营标识
+    // OverheadWidget 在下一帧 Tick 中通过 ShowPlayerTeamRole 读取新 TeamID
+    Character = Character == NULL ? Cast<ABlasterCharacter>(GetPawn()) : Character;
+    if (Character)
+    {
+        Controller = Controller == NULL ? Cast<ABlasterPlayerController>(Character->Controller) : Controller;
+        if (Controller)
+        {
+            // 阵营变化时刷新 HUD：RoundOverlay 中的阵营标签
+            // 具体 HUD 更新逻辑在 PlayerController 的 HandleAssignTeams 中处理
         }
     }
 }

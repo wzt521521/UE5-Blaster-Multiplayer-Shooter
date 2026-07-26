@@ -187,6 +187,10 @@ private:
 
 	void ElimTimerFinsished();
 
+	// 中途加入等待标记：回合进行中不生成 Pawn，下回合恢复
+	UPROPERTY(Replicated)
+	bool bWaitingForNextRound = false;
+
 public:
 	void SetOverlappingWeapon(AWeapon* Weapon) ;
 

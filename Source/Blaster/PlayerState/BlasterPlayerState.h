@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerState.h"
+#include "Blaster/BlasterTypes/TeamTypes.h"
 #include "BlasterPlayerState.generated.h"
 
 
@@ -24,6 +25,17 @@ public:
 	UFUNCTION()
 	virtual void OnRep_Defeats();
 	void AddToDefeats(int32 DefeatsAmount);
+
+	// 当前所属阵营（服务器权威修改，复制到所有客户端）
+	UPROPERTY(ReplicatedUsing = OnRep_TeamID)
+	ETeamID TeamID = ETeamID::ETI_None;
+
+	UFUNCTION()
+	void OnRep_TeamID();
+
+	// 服务器权威 Setter：更新 TeamID → 触发 OnRep 通知 Controller/OverheadWidget
+	void SetTeamID(ETeamID NewTeamID);
+
 private:
 	UPROPERTY()
 	ABlasterCharacter* Character;//玩家角色——UPROPERTY 防止 Pawn 销毁后变成野指针

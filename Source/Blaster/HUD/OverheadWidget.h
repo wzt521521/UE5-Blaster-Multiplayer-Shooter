@@ -20,8 +20,11 @@ public:
 
 
 	void SetDisplayText(FString TextToDisplay);
+	// 保留旧函数名（蓝图兼容），内部改为阵营规则
 	UFUNCTION(BlueprintCallable)
 	void ShowPlayerNetRole(APawn* InPawn);
+	// 阵营规则：自己/队友可见，敌方隐藏
+	void ShowPlayerTeamRole(APawn* InPawn);
 protected:
 	virtual void OnLevelRemovedFromWorld(ULevel* InLevel, UWorld* InWorld) override;
 };

@@ -25,17 +25,17 @@ void ALobbyGameMode::PostLogin(APlayerController *NewPlayer)
     UE_LOG(LogTemp, Warning, TEXT("%s"), *PlayerCountMsg);
     GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, PlayerCountMsg);
 
-    if (NumOfPlayers == 2)
+    if (NumOfPlayers >= AimPeople)
     {
         UWorld* World = GetWorld();
         if (World)
         {
-            const FString TravelMsg = TEXT("[LobbyGameMode] ServerTravel -> Bomb_Defusal");
+            const FString TravelMsg = FString::Printf(TEXT("[LobbyGameMode] ServerTravel -> %s"), *GameMapPath);
             UE_LOG(LogTemp, Warning, TEXT("%s"), *TravelMsg);
             GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Green, TravelMsg);
 
             bUseSeamlessTravel = true;
-            World->ServerTravel(FString("/Game/Maps/Bomb_Defusal?listen"));
+            World->ServerTravel(GameMapPath);
         }
         else
         {

@@ -15,6 +15,7 @@
 #include "Blaster/BlasterComponents/ThrowableComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Blaster/GameMode/BlasterGameMode.h"
+#include "Blaster/GameMode/TeamDeathmatchGameMode.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
 #include "Blaster/GameState/BlasterGameState.h"
 #include "Blaster/BlasterTypes/Announcement.h"
@@ -380,6 +381,27 @@ void ABlasterPlayerController::OnMatchStateSet(FName State, bool bTeamsMatch)//�
 	{
 		HandleCooldown();
 	}
+	// 回合制阵营模式状态处理
+	else if (MatchState == MatchState::AssignTeams)
+	{
+		HandleAssignTeams();
+	}
+	else if (MatchState == MatchState::RoundPrepare)
+	{
+		HandleRoundPrepare();
+	}
+	else if (MatchState == MatchState::RoundInProgress)
+	{
+		HandleRoundInProgress();
+	}
+	else if (MatchState == MatchState::RoundEnd)
+	{
+		HandleRoundEnd();
+	}
+	else if (MatchState == MatchState::MatchEnd)
+	{
+		HandleMatchEnd();
+	}
 }
 
 void ABlasterPlayerController::OnRep_MatchState()//负责同步玩家状态，与OnMatchStateSet配合，一个负责初始化，一个负责后续同步
@@ -405,6 +427,27 @@ void ABlasterPlayerController::OnRep_MatchState()//负责同步玩家状态，�
 		{
 			OpenBuyMenuOnWarmup();
 		}
+	}
+	// 回合制阵营模式状态处理（复制路径）
+	else if (MatchState == MatchState::AssignTeams)
+	{
+		HandleAssignTeams();
+	}
+	else if (MatchState == MatchState::RoundPrepare)
+	{
+		HandleRoundPrepare();
+	}
+	else if (MatchState == MatchState::RoundInProgress)
+	{
+		HandleRoundInProgress();
+	}
+	else if (MatchState == MatchState::RoundEnd)
+	{
+		HandleRoundEnd();
+	}
+	else if (MatchState == MatchState::MatchEnd)
+	{
+		HandleMatchEnd();
 	}
 }
 
@@ -701,46 +744,61 @@ void ABlasterPlayerController::SetHUDTime()
 {
 	float TimeLeft = 0.f;
 
-	// 各阶段剩余时间 = 本阶段截止时间点 - 当前服务器时间
-	// 截止时间 = 之前所有阶段时长之和 + 本阶段时长 + LevelStartingTime
-	if (MatchState == MatchState::WaitingToStart)
-		TimeLeft = WarmupTime - GetServerTime() + LevelStartingTime;
-	else if (MatchState == MatchState::InProgress)
-		TimeLeft = WarmupTime + MatchTime - GetServerTime() + LevelStartingTime;
-	else if (MatchState == MatchState::Cooldown)
-		TimeLeft = CooldownTime + WarmupTime + MatchTime - GetServerTime() + LevelStartingTime;
-
-	uint32 SecondsLeft = FMath::CeilToInt(TimeLeft);
-
-	// 服务器端：直接使用 GameMode 里计算好的权威倒计时，保证精确
-	if (HasAuthority())
+	// 回合制 GameMode：直接读取权威倒计时（Tick 中已计算好剩余秒数）
+	ATeamDeathmatchGameMode* TDMGameMode = Cast<ATeamDeathmatchGameMode>(UGameplayStatics::GetGameMode(this));
+	if (TDMGameMode)
 	{
-		if (BlasterGameMode == nullptr)
+		TimeLeft = TDMGameMode->GetCountdownTime();
+	}
+	else
+	{
+		// 原有 Deathmatch 倒计时逻辑
+		if (MatchState == MatchState::WaitingToStart)
+			TimeLeft = WarmupTime - GetServerTime() + LevelStartingTime;
+		else if (MatchState == MatchState::InProgress)
+			TimeLeft = WarmupTime + MatchTime - GetServerTime() + LevelStartingTime;
+		else if (MatchState == MatchState::Cooldown)
+			TimeLeft = CooldownTime + WarmupTime + MatchTime - GetServerTime() + LevelStartingTime;
+
+		// 服务器端：直接使用 GameMode 里计算好的权威倒计时，保证精确
+		if (HasAuthority())
 		{
-			BlasterGameMode = Cast<ABlasterGameMode>(UGameplayStatics::GetGameMode(this));
-			LevelStartingTime = BlasterGameMode->LevelStartingTime;
-		}
-		BlasterGameMode = BlasterGameMode == nullptr
-			? Cast<ABlasterGameMode>(UGameplayStatics::GetGameMode(this))
-			: BlasterGameMode;
-		if (BlasterGameMode)
-		{
-			SecondsLeft = FMath::CeilToInt(BlasterGameMode->GetCountdownTime() + LevelStartingTime);
+			if (BlasterGameMode == nullptr)
+			{
+				BlasterGameMode = Cast<ABlasterGameMode>(UGameplayStatics::GetGameMode(this));
+				LevelStartingTime = BlasterGameMode->LevelStartingTime;
+			}
+			BlasterGameMode = BlasterGameMode == nullptr
+				? Cast<ABlasterGameMode>(UGameplayStatics::GetGameMode(this))
+				: BlasterGameMode;
+			if (BlasterGameMode)
+			{
+				TimeLeft = BlasterGameMode->GetCountdownTime();
+			}
 		}
 	}
+
+	uint32 SecondsLeft = FMath::CeilToInt(TimeLeft);
 
 	// 仅在秒数变化时才更新 UI，避免每帧做无效的字符串格式化
 	if (CountdownInt != SecondsLeft)
 	{
-		// 热身和冷却 → 更新公告面板倒计时（WarmupTime 文本控件）
+		// 热身和冷却 → 更新公告面板倒计时
 		if (MatchState == MatchState::WaitingToStart || MatchState == MatchState::Cooldown)
 		{
 			SetHUDAnnouncementCountdown(TimeLeft);
 		}
-		// 比赛中 → 更新战斗 HUD 倒计时（MatchCountdownText 文本控件）
+		// 比赛中 → 更新战斗 HUD 倒计时
 		if (MatchState == MatchState::InProgress)
 		{
 			SetHUDMatchCountdown(TimeLeft);
+		}
+		// 回合制倒计时：RoundPrepare / RoundEnd / MatchEnd 均显示在公告面板上
+		if (MatchState == MatchState::RoundPrepare ||
+		    MatchState == MatchState::RoundEnd ||
+		    MatchState == MatchState::MatchEnd)
+		{
+			SetHUDAnnouncementCountdown(TimeLeft);
 		}
 	}
 
@@ -765,4 +823,156 @@ void ABlasterPlayerController::PollInit()//推送缓存数据
 			}
 		}
 	}
+}
+
+// ========================================================================
+// 回合制阵营模式：MatchState 处理器
+// ========================================================================
+void ABlasterPlayerController::HandleAssignTeams()
+{
+	ABlasterPlayerState* PS = GetPlayerState<ABlasterPlayerState>();
+	if (!PS) return;
+
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	if (BlasterHud && BlasterHud->Announcement == nullptr)
+	{
+		BlasterHud->AddAnnouncement();
+	}
+	if (BlasterHud && BlasterHud->Announcement)
+	{
+		BlasterHud->Announcement->SetVisibility(ESlateVisibility::Visible);
+
+		const FString TeamStr = (PS->TeamID == ETeamID::ETI_Attacker)
+			? TEXT("攻击者") : TEXT("保卫者");
+		const FString AnnounceText = FString::Printf(TEXT("你是%s"), *TeamStr);
+		BlasterHud->Announcement->AnnouncementText->SetText(FText::FromString(AnnounceText));
+		BlasterHud->Announcement->InfoText->SetText(FText());
+	}
+}
+
+void ABlasterPlayerController::HandleRoundPrepare()
+{
+	ATeamDeathmatchGameMode* TDMGameMode = Cast<ATeamDeathmatchGameMode>(UGameplayStatics::GetGameMode(this));
+	ABlasterPlayerState* PS = GetPlayerState<ABlasterPlayerState>();
+	if (!TDMGameMode || !PS) return;
+
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	if (BlasterHud && BlasterHud->Announcement == nullptr)
+	{
+		BlasterHud->AddAnnouncement();
+	}
+
+	// 隐藏战斗 HUD，显示公告面板
+	if (BlasterHud && BlasterHud->CharacterOverlay)
+	{
+		BlasterHud->CharacterOverlay->SetVisibility(ESlateVisibility::Hidden);
+	}
+
+	if (BlasterHud && BlasterHud->Announcement)
+	{
+		BlasterHud->Announcement->SetVisibility(ESlateVisibility::Visible);
+
+		const FString TeamStr = (PS->TeamID == ETeamID::ETI_Attacker)
+			? TEXT("攻击者") : TEXT("保卫者");
+		const FString AnnounceText = FString::Printf(TEXT("第%d回合"), TDMGameMode->GetRoundNumber());
+		const FString InfoStr = FString::Printf(TEXT("你是%s"), *TeamStr);
+
+		BlasterHud->Announcement->AnnouncementText->SetText(FText::FromString(AnnounceText));
+		BlasterHud->Announcement->InfoText->SetText(FText::FromString(InfoStr));
+	}
+}
+
+void ABlasterPlayerController::HandleRoundInProgress()
+{
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	if (BlasterHud)
+	{
+		if (BlasterHud->CharacterOverlay == nullptr) BlasterHud->AddCharacterOverlay();
+		if (BlasterHud->CharacterOverlay)
+		{
+			BlasterHud->CharacterOverlay->SetVisibility(ESlateVisibility::Visible);
+		}
+		if (BlasterHud->Announcement)
+		{
+			BlasterHud->Announcement->SetVisibility(ESlateVisibility::Hidden);
+		}
+	}
+}
+
+void ABlasterPlayerController::HandleRoundEnd()
+{
+	ATeamDeathmatchGameMode* TDMGameMode = Cast<ATeamDeathmatchGameMode>(UGameplayStatics::GetGameMode(this));
+	if (!TDMGameMode) return;
+
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	if (BlasterHud && BlasterHud->Announcement == nullptr)
+	{
+		BlasterHud->AddAnnouncement();
+	}
+
+	if (BlasterHud && BlasterHud->CharacterOverlay)
+	{
+		BlasterHud->CharacterOverlay->SetVisibility(ESlateVisibility::Hidden);
+	}
+
+	const int32 AtkWins = TDMGameMode->GetAttackerRoundWins();
+	const int32 DefWins = TDMGameMode->GetDefenderRoundWins();
+
+	if (BlasterHud && BlasterHud->Announcement)
+	{
+		BlasterHud->Announcement->SetVisibility(ESlateVisibility::Visible);
+
+		BlasterHud->Announcement->AnnouncementText->SetText(FText::FromString(TEXT("回合结束")));
+		const FString InfoStr = FString::Printf(TEXT("攻击者 %d - %d 保卫者"), AtkWins, DefWins);
+		BlasterHud->Announcement->InfoText->SetText(FText::FromString(InfoStr));
+	}
+}
+
+void ABlasterPlayerController::HandleMatchEnd()
+{
+	ATeamDeathmatchGameMode* TDMGameMode = Cast<ATeamDeathmatchGameMode>(UGameplayStatics::GetGameMode(this));
+	if (!TDMGameMode) return;
+
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	if (BlasterHud && BlasterHud->Announcement == nullptr)
+	{
+		BlasterHud->AddAnnouncement();
+	}
+
+	if (BlasterHud && BlasterHud->CharacterOverlay)
+	{
+		BlasterHud->CharacterOverlay->SetVisibility(ESlateVisibility::Hidden);
+	}
+
+	const int32 AtkWins = TDMGameMode->GetAttackerRoundWins();
+	const int32 DefWins = TDMGameMode->GetDefenderRoundWins();
+	FString WinnerStr = (AtkWins > DefWins) ? TEXT("攻击者赢得比赛!") : TEXT("保卫者赢得比赛!");
+
+	if (BlasterHud && BlasterHud->Announcement)
+	{
+		BlasterHud->Announcement->SetVisibility(ESlateVisibility::Visible);
+		BlasterHud->Announcement->AnnouncementText->SetText(FText::FromString(WinnerStr));
+		const FString InfoStr = FString::Printf(TEXT("最终比分 %d - %d\n返回大厅..."), AtkWins, DefWins);
+		BlasterHud->Announcement->InfoText->SetText(FText::FromString(InfoStr));
+	}
+}
+
+// ========================================================================
+// 回合信息 HUD 推送（供 RoundOverlay 蓝图绑定，当前为占位实现）
+// ========================================================================
+void ABlasterPlayerController::SetHUDRoundInfo(int32 InRoundNumber, ETeamID MyTeam,
+	int32 AttackerWins, int32 DefenderWins)
+{
+}
+
+void ABlasterPlayerController::SetHUDRoundResult(ETeamID Winner, int32 AttackerWins, int32 DefenderWins)
+{
+}
+
+void ABlasterPlayerController::SetHUDMatchResult(ETeamID Winner)
+{
+}
+
+void ABlasterPlayerController::SetHUDAliveCount(int32 AttackersAlive, int32 DefendersAlive)
+{
 }
