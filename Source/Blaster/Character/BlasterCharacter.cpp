@@ -16,7 +16,7 @@
 #include "BlasterAnimInstance.h"
 #include "../PlayerController/BlasterPlayerController.h"
 #include "Blaster/GameMode/BlasterGameMode.h"
-#include "Blaster/GameMode/TeamDeathmatchGameMode.h"
+#include "Blaster/GameMode/BombDefusalGameMode.h"
 #include "TimerManager.h"
 #include "Blaster/WeaponSystem/Weapon/WeaponTypes.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
@@ -201,7 +201,7 @@ void ABlasterCharacter::Elim()
 	MulticastElim();
 	// 回合制模式不自动复活：由 GameMode 在新回合 CleanupBodiesAndRespawn 中统一处理
 	// Deathmatch 模式依然走 ElimTimer → ElimTimerFinished → RequestRespawn
-	ATeamDeathmatchGameMode* TDMGameMode = GetWorld()->GetAuthGameMode<ATeamDeathmatchGameMode>();
+	ABombDefusalGameMode* TDMGameMode = GetWorld()->GetAuthGameMode<ABombDefusalGameMode>();
 	if (!TDMGameMode)
 	{
 		GetWorldTimerManager().SetTimer(
@@ -471,7 +471,7 @@ void ABlasterCharacter::ReceiveDamage(AActor *DamagedActor, float Damage, const 
 		BlasterPlayerController = BlasterPlayerController == nullptr ? Cast<ABlasterPlayerController>(Controller) : BlasterPlayerController;
 		ABlasterPlayerController* AttackerController = Cast<ABlasterPlayerController>(InstigatorController);
 		// 优先路由到回合制 GameMode（新逻辑），退回到 Deathmatch GameMode（旧逻辑）
-		ATeamDeathmatchGameMode* TDMGameMode = GetWorld()->GetAuthGameMode<ATeamDeathmatchGameMode>();
+		ABombDefusalGameMode* TDMGameMode = GetWorld()->GetAuthGameMode<ABombDefusalGameMode>();
 		if (TDMGameMode)
 		{
 			TDMGameMode->OnPlayerKilled(this, BlasterPlayerController, AttackerController);
@@ -746,9 +746,10 @@ FVector ABlasterCharacter::GetHitTarget() const
 
 void ABlasterCharacter::SpawDefaultWeapon()
 {
-	ABlasterGameMode* BlasterGameMode = GetWorld()->GetAuthGameMode<ABlasterGameMode>();
+	// 检查任意 GameMode（回合制 ABombDefusalGameMode 继承 AGameMode 而非 ABlasterGameMode）
+	AGameMode* GameMode = GetWorld()->GetAuthGameMode<AGameMode>();
 	UWorld* World = GetWorld();
-	if (BlasterGameMode && World && !bElimmed && DefaultWeaponClass)
+	if (GameMode && World && !bElimmed && DefaultWeaponClass)
 	{
 		AWeapon* StartingWeapon = World->SpawnActor<AWeapon>(DefaultWeaponClass);
 		StartingWeapon->bDestroyWeapon = true;

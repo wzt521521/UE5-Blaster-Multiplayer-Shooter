@@ -7,6 +7,7 @@
 #include "BlasterHud.generated.h"
 class UTexture2D;
 class UCharacteroverlay;
+class URoundOverlay;
 class UUserWidget;
 class UBuyMenu;
 class UThrowableSelectionWheel;
@@ -77,6 +78,16 @@ public:
 	UThrowableSelectionWheel* ThrowableWheel;
 
 	void CreateThrowableWheel();
+
+	// 回合信息面板蓝图类，蓝图中配置，运行时由 CreateRoundOverlay() 实例化
+	UPROPERTY(EditAnywhere, Category = "Player HUD")
+	TSubclassOf<UUserWidget> RoundOverlayClass;
+
+	// 回合信息面板运行时实例指针
+	UPROPERTY()
+	URoundOverlay* RoundOverlay;
+
+	void CreateRoundOverlay();
 
 private:
 

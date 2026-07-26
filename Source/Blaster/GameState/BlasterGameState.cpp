@@ -9,6 +9,17 @@ void ABlasterGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &Ou
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
     DOREPLIFETIME(ABlasterGameState, TopScoringPlayers);
+    DOREPLIFETIME(ABlasterGameState, RemainingCountdown);
+    DOREPLIFETIME(ABlasterGameState, CurrentRoundNumber);
+    DOREPLIFETIME(ABlasterGameState, AttackerWins);
+    DOREPLIFETIME(ABlasterGameState, DefenderWins);
+    DOREPLIFETIME(ABlasterGameState, LastRoundWinner);
+    DOREPLIFETIME(ABlasterGameState, LastMatchWinner);
+    DOREPLIFETIME(ABlasterGameState, RoundPrepareDuration);
+    DOREPLIFETIME(ABlasterGameState, RoundEndDuration);
+    DOREPLIFETIME(ABlasterGameState, MatchEndDuration);
+    DOREPLIFETIME(ABlasterGameState, AttackerAliveCount);
+    DOREPLIFETIME(ABlasterGameState, DefenderAliveCount);
 }
 
 // ------------------------------------------------------------

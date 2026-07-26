@@ -1,7 +1,8 @@
-#include "TeamDeathmatchGameMode.h"
+#include "BombDefusalGameMode.h"
 #include "Blaster/Character/BlasterCharacter.h"
 #include "Blaster/PlayerController/BlasterPlayerController.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
+#include "Blaster/GameState/BlasterGameState.h"
 #include "Blaster/GameMode/BlasterGameMode.h"    // MatchState 命名空间常量
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/GameState.h"
@@ -10,44 +11,61 @@
 #include "Net/UnrealNetwork.h"
 #include "Engine/Engine.h"
 
-ATeamDeathmatchGameMode::ATeamDeathmatchGameMode()
+ABombDefusalGameMode::ABombDefusalGameMode()
 {
-	// 推迟角色生成：PostLogin 获得控制器，手动控制角色生成时机
+	// 延迟开局：手动控制角色生成和状态机启动时机
 	bDelayedStart = true;
+	// 必须设 PlayerStateClass，否则 GetActivePlayers() 里 Cast<ABlasterPlayerState> 失败
+	PlayerStateClass = ABlasterPlayerState::StaticClass();
 }
 
-void ATeamDeathmatchGameMode::BeginPlay()
+void ABombDefusalGameMode::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// 缓存 GameState 引用并同步阶段时长配置（这些值后续不再变化，但客户端需要知道）
+	BlasterGameState = GetGameState<ABlasterGameState>();
+	if (BlasterGameState)
+	{
+		BlasterGameState->RoundPrepareDuration = RoundPrepareTime;
+		BlasterGameState->RoundEndDuration = RoundEndTime;
+		BlasterGameState->MatchEndDuration = MatchEndTime;
+	}
 }
 
-void ATeamDeathmatchGameMode::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+void ABombDefusalGameMode::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	DOREPLIFETIME(ATeamDeathmatchGameMode, AttackerAliveCount);
-	DOREPLIFETIME(ATeamDeathmatchGameMode, DefenderAliveCount);
+	DOREPLIFETIME(ABombDefusalGameMode, AttackerAliveCount);
+	DOREPLIFETIME(ABombDefusalGameMode, DefenderAliveCount);
 }
 
 // ========================================================================
 // Tick 驱动状态机
 // WaitingToStart → AssignTeams(瞬间) → RoundPrepare → RoundInProgress → RoundEnd → ...
 // ========================================================================
-void ATeamDeathmatchGameMode::Tick(float DeltaTime)
+void ABombDefusalGameMode::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
 	if (MatchState == MatchState::WaitingToStart)
 	{
-		// 人数达标 → 一次性分配阵营 → 进入第一个回合准备
+		// 人数达标 → 一次性分配阵营 → 短暂 AssignTeams 状态让客户端显示阵营提示
 		if (GetActivePlayers().Num() >= AimPeople)
 		{
 			AssignTeamsOnce();
-			StartRoundPrepare();
+			SetMatchState(MatchState::AssignTeams);
 		}
+	}
+	else if (MatchState == MatchState::AssignTeams)
+	{
+		// 阵营提示展示一帧后立即进入回合准备（无倒计时，瞬间过渡）
+		StartRoundPrepare();
 	}
 	else if (MatchState == MatchState::RoundPrepare)
 	{
 		CountdownTime -= DeltaTime;
+		if (BlasterGameState) BlasterGameState->RemainingCountdown = CountdownTime;
 		if (CountdownTime <= 0.f)
 		{
 			StartRoundInProgress();
@@ -55,12 +73,20 @@ void ATeamDeathmatchGameMode::Tick(float DeltaTime)
 	}
 	else if (MatchState == MatchState::RoundInProgress)
 	{
-		// Tick 不遍历 PlayerArray：存活计数由 OnPlayerKilled 事件驱动
+		// 回合计时器倒计时 + 存活计数由 OnPlayerKilled 事件驱动
+		CountdownTime -= DeltaTime;
+		if (BlasterGameState) BlasterGameState->RemainingCountdown = CountdownTime;
+		// 超时：攻击方未能全灭/下包 → 保卫者获胜
+		if (CountdownTime <= 0.f)
+		{
+			EndRound(ETeamID::ETI_Defender);
+		}
 		CheckRoundEnd();
 	}
 	else if (MatchState == MatchState::RoundEnd)
 	{
 		CountdownTime -= DeltaTime;
+		if (BlasterGameState) BlasterGameState->RemainingCountdown = CountdownTime;
 		if (CountdownTime <= 0.f)
 		{
 			CheckMatchEnd(); // 内部判断是继续下一回合还是结束比赛
@@ -69,6 +95,7 @@ void ATeamDeathmatchGameMode::Tick(float DeltaTime)
 	else if (MatchState == MatchState::MatchEnd)
 	{
 		CountdownTime -= DeltaTime;
+		if (BlasterGameState) BlasterGameState->RemainingCountdown = CountdownTime;
 		if (CountdownTime <= 0.f)
 		{
 			ReturnToLobby();
@@ -79,7 +106,7 @@ void ATeamDeathmatchGameMode::Tick(float DeltaTime)
 // ========================================================================
 // 阵营分配：比赛开始一次性随机分配，整场不变
 // ========================================================================
-void ATeamDeathmatchGameMode::AssignTeamsOnce()
+void ABombDefusalGameMode::AssignTeamsOnce()
 {
 	if (bTeamsAssigned) return;
 	bTeamsAssigned = true;
@@ -105,29 +132,38 @@ void ATeamDeathmatchGameMode::AssignTeamsOnce()
 // ========================================================================
 // 回合生命周期函数
 // ========================================================================
-void ATeamDeathmatchGameMode::StartRoundPrepare()
+void ABombDefusalGameMode::StartRoundPrepare()
 {
 	RoundNumber++;
 	CountdownTime = RoundPrepareTime;
+
+	// 必须先推送到 GameState，再切 MatchState：
+	// SetMatchState → HandleRoundPrepare → 读 GameState，Sync 在后会导致读到旧值
+	SyncToGameState();
 	SetMatchState(MatchState::RoundPrepare);
 
 	// 清尸体、重生所有玩家、重置存活计数
 	CleanupBodiesAndRespawn();
 }
 
-void ATeamDeathmatchGameMode::StartRoundInProgress()
+void ABombDefusalGameMode::StartRoundInProgress()
 {
-	CountdownTime = 0.f;
+	// 重新校准存活计数：RoundPrepare 期间可能有玩家退出导致计数失准
+	AttackerAliveCount = GetPlayersInTeam(ETeamID::ETI_Attacker).Num();
+	DefenderAliveCount = GetPlayersInTeam(ETeamID::ETI_Defender).Num();
+
+	// 回合计时器启动：超时 → 保卫者获胜（经典爆破规则）
+	CountdownTime = RoundTime;
 	SetMatchState(MatchState::RoundInProgress);
 }
 
-void ATeamDeathmatchGameMode::OnPlayerKilled(ABlasterCharacter* DeadCharacter,
+void ABombDefusalGameMode::OnPlayerKilled(ABlasterCharacter* DeadCharacter,
 	ABlasterPlayerController* VictimController,
 	ABlasterPlayerController* AttackerController)
 {
 	if (!VictimController || !VictimController->PlayerState) return;
 
-	// 加分统计（保留 Deathmatch 计分逻辑，可用于后续经济系统）
+	// 加分统计（保留计分逻辑，可用于后续经济系统）
 	ABlasterPlayerState* AttackerPS = AttackerController
 		? Cast<ABlasterPlayerState>(AttackerController->PlayerState) : nullptr;
 	ABlasterPlayerState* VictimPS = Cast<ABlasterPlayerState>(VictimController->PlayerState);
@@ -156,10 +192,12 @@ void ATeamDeathmatchGameMode::OnPlayerKilled(ABlasterCharacter* DeadCharacter,
 			DefenderAliveCount--;
 	}
 
+	// 同步最新的存活计数到 GameState
+	SyncToGameState();
 	CheckRoundEnd();
 }
 
-void ATeamDeathmatchGameMode::CheckRoundEnd()
+void ABombDefusalGameMode::CheckRoundEnd()
 {
 	// 仅在战斗中检查：回合结束/准备阶段不重复判定
 	if (MatchState != MatchState::RoundInProgress) return;
@@ -170,18 +208,24 @@ void ATeamDeathmatchGameMode::CheckRoundEnd()
 		EndRound(ETeamID::ETI_Attacker);
 }
 
-void ATeamDeathmatchGameMode::EndRound(ETeamID Winner)
+void ABombDefusalGameMode::EndRound(ETeamID Winner)
 {
+	// 存储上一回合胜者，供 HandleRoundEnd 显示
+	LastRoundWinner = Winner;
+
 	if (Winner == ETeamID::ETI_Attacker)
 		AttackerRoundWins++;
 	else if (Winner == ETeamID::ETI_Defender)
 		DefenderRoundWins++;
 
 	CountdownTime = RoundEndTime;
+
+	// 必须先推送到 GameState，再切 MatchState，确保 HandleRoundEnd 读到最新值
+	SyncToGameState();
 	SetMatchState(MatchState::RoundEnd);
 }
 
-void ATeamDeathmatchGameMode::CheckMatchEnd()
+void ABombDefusalGameMode::CheckMatchEnd()
 {
 	if (AttackerRoundWins >= RoundsToWin)
 		ConcludeMatch(ETeamID::ETI_Attacker);
@@ -191,17 +235,25 @@ void ATeamDeathmatchGameMode::CheckMatchEnd()
 		StartRoundPrepare(); // 继续下一回合
 }
 
-void ATeamDeathmatchGameMode::ConcludeMatch(ETeamID Winner)
+void ABombDefusalGameMode::ConcludeMatch(ETeamID Winner)
 {
+	// 存储比赛最终胜者，供 HandleMatchEnd 显示
+	LastMatchWinner = Winner;
 	CountdownTime = MatchEndTime;
+
+	// 必须先推送到 GameState，再切 MatchState，确保 HandleMatchEnd 读到最新值
+	SyncToGameState();
 	SetMatchState(MatchState::MatchEnd);
 }
 
-void ATeamDeathmatchGameMode::ReturnToLobby()
+void ABombDefusalGameMode::ReturnToLobby()
 {
 	UWorld* World = GetWorld();
 	if (World)
 	{
+		// 先切到 LeavingMap 防重入：ServerTravel 是帧末延迟执行的，
+		// 若不切状态，Tick 会在后续帧重复调用 ReturnToLobby
+		SetMatchState(MatchState::LeavingMap);
 		bUseSeamlessTravel = true;
 		World->ServerTravel(LobbyMapPath);
 	}
@@ -210,23 +262,27 @@ void ATeamDeathmatchGameMode::ReturnToLobby()
 // ========================================================================
 // 复活逻辑：销毁死尸 → 重生所有玩家 → 重置存活计数
 // ========================================================================
-void ATeamDeathmatchGameMode::CleanupBodiesAndRespawn()
+void ABombDefusalGameMode::CleanupBodiesAndRespawn()
 {
+	// 缓存 PlayerStart 列表（循环外获取，避免每个 PC 都查询一次）
+	TArray<AActor*> PlayerStarts;
+	UGameplayStatics::GetAllActorsOfClass(this, APlayerStart::StaticClass(), PlayerStarts);
+
 	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
 	{
 		APlayerController* PC = It->Get();
 		if (!PC) continue;
 
-		// 销毁旧 Pawn（死尸/旁观 Pawn）
-		if (PC->GetPawn())
+		// 先 UnPossess 清除 Controller 对旧 Pawn 的引用，
+		// 否则 RestartPlayer 内 GetPawn() 非空会跳过生成新 Pawn
+		APawn* OldPawn = PC->GetPawn();
+		if (OldPawn)
 		{
-			PC->GetPawn()->Reset();
-			PC->GetPawn()->Destroy();
+			PC->UnPossess();
+			OldPawn->Destroy();  // 清理旧尸体
 		}
 
-		// 重生：在随机 PlayerStart 生成新 Pawn
-		TArray<AActor*> PlayerStarts;
-		UGameplayStatics::GetAllActorsOfClass(this, APlayerStart::StaticClass(), PlayerStarts);
+		// RestartPlayer：GetPawn() 已是 nullptr → 生成新 Pawn → Possess
 		if (PlayerStarts.Num() > 0)
 		{
 			int32 Selection = FMath::RandRange(0, PlayerStarts.Num() - 1);
@@ -246,7 +302,7 @@ void ATeamDeathmatchGameMode::CleanupBodiesAndRespawn()
 // ========================================================================
 // 状态推送：服务器 MatchState 变化 → 通知所有 PlayerController
 // ========================================================================
-void ATeamDeathmatchGameMode::OnMatchStateSet()
+void ABombDefusalGameMode::OnMatchStateSet()
 {
 	Super::OnMatchStateSet();
 
@@ -263,7 +319,7 @@ void ATeamDeathmatchGameMode::OnMatchStateSet()
 // ========================================================================
 // 玩家加入/退出
 // ========================================================================
-void ATeamDeathmatchGameMode::PostLogin(APlayerController* NewPlayer)
+void ABombDefusalGameMode::PostLogin(APlayerController* NewPlayer)
 {
 	Super::PostLogin(NewPlayer);
 
@@ -275,13 +331,13 @@ void ATeamDeathmatchGameMode::PostLogin(APlayerController* NewPlayer)
 	// else：比赛未开始，AssignTeamsOnce 时统一分配
 }
 
-void ATeamDeathmatchGameMode::Logout(AController* Exiting)
+void ABombDefusalGameMode::Logout(AController* Exiting)
 {
 	Super::Logout(Exiting);
 	HandleMidRoundLeave(Exiting);
 }
 
-void ATeamDeathmatchGameMode::HandleMidRoundJoin(APlayerController* NewPlayer)
+void ABombDefusalGameMode::HandleMidRoundJoin(APlayerController* NewPlayer)
 {
 	ABlasterPlayerState* PS = NewPlayer->GetPlayerState<ABlasterPlayerState>();
 	if (!PS) return;
@@ -305,7 +361,7 @@ void ATeamDeathmatchGameMode::HandleMidRoundJoin(APlayerController* NewPlayer)
 	}
 }
 
-void ATeamDeathmatchGameMode::HandleMidRoundLeave(AController* Exiting)
+void ABombDefusalGameMode::HandleMidRoundLeave(AController* Exiting)
 {
 	ABlasterPlayerState* PS = Exiting->GetPlayerState<ABlasterPlayerState>();
 	if (!PS) return;
@@ -323,14 +379,34 @@ void ATeamDeathmatchGameMode::HandleMidRoundLeave(AController* Exiting)
 			else if (PS->TeamID == ETeamID::ETI_Defender)
 				DefenderAliveCount--;
 		}
+		SyncToGameState();
 		CheckRoundEnd();
 	}
 }
 
 // ========================================================================
+// 将 CountdownTime / 回合信息推送到 GameState（服务器执行）
+// 客户端通过 GetGameState<ABlasterGameState>() 读取，无需依赖 GameMode
+// ========================================================================
+void ABombDefusalGameMode::SyncToGameState()
+{
+	if (!BlasterGameState)
+		BlasterGameState = GetGameState<ABlasterGameState>();
+	if (!BlasterGameState) return;
+
+	BlasterGameState->CurrentRoundNumber = RoundNumber;
+	BlasterGameState->AttackerWins = AttackerRoundWins;
+	BlasterGameState->DefenderWins = DefenderRoundWins;
+	BlasterGameState->LastRoundWinner = LastRoundWinner;
+	BlasterGameState->LastMatchWinner = LastMatchWinner;
+	BlasterGameState->AttackerAliveCount = AttackerAliveCount;
+	BlasterGameState->DefenderAliveCount = DefenderAliveCount;
+}
+
+// ========================================================================
 // 辅助函数
 // ========================================================================
-TArray<ABlasterPlayerState*> ATeamDeathmatchGameMode::GetPlayersInTeam(ETeamID Team) const
+TArray<ABlasterPlayerState*> ABombDefusalGameMode::GetPlayersInTeam(ETeamID Team) const
 {
 	TArray<ABlasterPlayerState*> Result;
 	if (!GameState) return Result;
@@ -346,7 +422,7 @@ TArray<ABlasterPlayerState*> ATeamDeathmatchGameMode::GetPlayersInTeam(ETeamID T
 	return Result;
 }
 
-TArray<ABlasterPlayerState*> ATeamDeathmatchGameMode::GetActivePlayers() const
+TArray<ABlasterPlayerState*> ABombDefusalGameMode::GetActivePlayers() const
 {
 	TArray<ABlasterPlayerState*> Result;
 	if (!GameState) return Result;

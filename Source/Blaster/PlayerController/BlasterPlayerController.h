@@ -18,8 +18,6 @@ class BLASTER_API ABlasterPlayerController : public APlayerController
 public:
 	void SetHUDHealth(float Health, float MaxHealth);
 	void SetHUDShield(float Shield, float MaxShield);
-	void SetHUDScore(float Score);
-	void SetHUDDefeats(int32 Defeats);
 	void SetHUDWeaponAmmo(int32 Ammo);
 	void SetHUDCarriedAmmo(int32 Ammo);
 void SetHUDMatchCountdown(float CountdownTime);
@@ -131,14 +129,12 @@ private:
 	float HUDShield;
 	bool bInitializeShield = false;
 	float HUDMaxShield;
-	float HUDScore;
-	bool bInitializeScore = false;
-	int32 HUDDefeats;
-	bool bInitializeDefeats = false;
 	float HUDMatchCountdown;
 	bool bInitializeMatchCountdown = false;
 	int32 HUDCarriedAmmo;
 	bool bInitializeCarriedAmmo = false;
+	int32 HUDWeaponAmmo;
+	bool bInitializeWeaponAmmo = false;
 
 	// 不匹配提示自动隐藏 Timer（2秒）
 	FTimerHandle MismatchNotificationTimer;
@@ -146,6 +142,9 @@ private:
 
 	// 购买菜单是否正在显示，ShowBuyMenu/HideBuyMenu 维护此标志
 	bool bBuyMenuOpen = false;
+
+	// 客户端 GameState 复制延迟补偿：PollInit 中公告阶段每帧刷新公告文本
+	void RefreshAnnouncementFromGameState();
 
 	// 投掷物径向选择面板是否正在显示，ShowThrowablePanel/HideThrowablePanel 维护此标志
 	bool bThrowablePanelOpen = false;

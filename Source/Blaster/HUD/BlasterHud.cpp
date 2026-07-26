@@ -4,6 +4,7 @@
 #include "BlasterHud.h"
 #include "Characteroverlay.h"
 #include "Announcement.h"
+#include "RoundOverlay.h"
 #include "BuyMenu.h"
 #include "ThrowableSelectionWheel.h"
 #include "GameFramework/PlayerController.h"
@@ -117,6 +118,18 @@ void ABlasterHud::CreateBuyMenu()
 	{
 		BuyMenu = CreateWidget<UBuyMenu>(PlayerController, BuyMenuClass);
 		// 不调用 AddToViewport()，由 PlayerController::ShowBuyMenu() 控制显示时机
+	}
+}
+
+void ABlasterHud::CreateRoundOverlay()
+{
+	if (RoundOverlay) return;
+
+	APlayerController* PlayerController = GetOwningPlayerController();
+	if (PlayerController && RoundOverlayClass)
+	{
+		RoundOverlay = CreateWidget<URoundOverlay>(PlayerController, RoundOverlayClass);
+		RoundOverlay->AddToViewport();
 	}
 }
 

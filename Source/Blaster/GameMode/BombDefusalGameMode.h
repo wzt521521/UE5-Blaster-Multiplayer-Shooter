@@ -3,21 +3,21 @@
 #include "CoreMinimal.h"
 #include "GameFramework/GameMode.h"
 #include "Blaster/BlasterTypes/TeamTypes.h"
-#include "TeamDeathmatchGameMode.generated.h"
+#include "BombDefusalGameMode.generated.h"
 
 class ABlasterCharacter;
 class ABlasterPlayerController;
 class ABlasterPlayerState;
 
-// 回合制阵营对抗 GameMode：歼灭胜利条件（全灭对手），为爆破模式铺路
+// 回合制阵营对抗 GameMode：歼灭胜利条件（全灭对手），后续叠加炸弹机制即为完整爆破模式
 // 继承 AGameMode（非 ABlasterGameMode），回合制状态机与 Deathmatch 完全独立
 UCLASS()
-class BLASTER_API ATeamDeathmatchGameMode : public AGameMode
+class BLASTER_API ABombDefusalGameMode : public AGameMode
 {
 	GENERATED_BODY()
 
 public:
-	ATeamDeathmatchGameMode();
+	ABombDefusalGameMode();
 	virtual void Tick(float DeltaTime) override;
 	virtual void PostLogin(APlayerController* NewPlayer) override;
 	virtual void Logout(AController* Exiting) override;
@@ -29,12 +29,22 @@ public:
 	                    ABlasterPlayerController* VictimController,
 	                    ABlasterPlayerController* AttackerController);
 
-	FORCEINLINE float GetCountdownTime() const { return CountdownTime; }
-	FORCEINLINE int32 GetRoundNumber() const { return RoundNumber; }
-	FORCEINLINE int32 GetAttackerRoundWins() const { return AttackerRoundWins; }
-	FORCEINLINE int32 GetDefenderRoundWins() const { return DefenderRoundWins; }
-	FORCEINLINE int32 GetAttackerAliveCount() const { return AttackerAliveCount; }
-	FORCEINLINE int32 GetDefenderAliveCount() const { return DefenderAliveCount; }
+	UFUNCTION(BlueprintPure)
+	float GetCountdownTime() const { return CountdownTime; }
+	UFUNCTION(BlueprintPure)
+	int32 GetRoundNumber() const { return RoundNumber; }
+	UFUNCTION(BlueprintPure)
+	int32 GetAttackerRoundWins() const { return AttackerRoundWins; }
+	UFUNCTION(BlueprintPure)
+	int32 GetDefenderRoundWins() const { return DefenderRoundWins; }
+	UFUNCTION(BlueprintPure)
+	int32 GetAttackerAliveCount() const { return AttackerAliveCount; }
+	UFUNCTION(BlueprintPure)
+	int32 GetDefenderAliveCount() const { return DefenderAliveCount; }
+	UFUNCTION(BlueprintPure)
+	ETeamID GetLastRoundWinner() const { return LastRoundWinner; }
+	UFUNCTION(BlueprintPure)
+	ETeamID GetLastMatchWinner() const { return LastMatchWinner; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -55,6 +65,10 @@ protected:
 	// 回合结果播报时长（秒）
 	UPROPERTY(EditDefaultsOnly, Category = "Round Settings")
 	float RoundEndTime = 4.f;
+
+	// 回合战斗时长（秒），超时保卫者获胜
+	UPROPERTY(EditDefaultsOnly, Category = "Round Settings")
+	float RoundTime = 120.f;
 
 	// 比赛结果播报时长（秒）
 	UPROPERTY(EditDefaultsOnly, Category = "Round Settings")
@@ -81,6 +95,11 @@ private:
 	// 标记阵营是否已分配（一场比赛只分配一次）
 	bool bTeamsAssigned = false;
 
+	// 上一回合胜者（HandleRoundEnd 显示用）
+	ETeamID LastRoundWinner = ETeamID::ETI_None;
+	// 比赛最终胜者（HandleMatchEnd 显示用）
+	ETeamID LastMatchWinner = ETeamID::ETI_None;
+
 	void StartRoundPrepare();
 	void AssignTeamsOnce();             // 比赛开始一次性随机分配阵营
 	void StartRoundInProgress();
@@ -98,4 +117,10 @@ private:
 	void CleanupBodiesAndRespawn();     // 销毁死尸 + 重生所有玩家 + 重置 AliveCount
 	TArray<ABlasterPlayerState*> GetPlayersInTeam(ETeamID Team) const;
 	TArray<ABlasterPlayerState*> GetActivePlayers() const;
+
+	// 将 CountdownTime / 回合信息 推送到 GameState，客户端通过 GameState 读取
+	void SyncToGameState();
+
+	UPROPERTY()
+	class ABlasterGameState* BlasterGameState;
 };
