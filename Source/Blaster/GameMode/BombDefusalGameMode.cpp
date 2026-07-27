@@ -3,7 +3,7 @@
 #include "Blaster/PlayerController/BlasterPlayerController.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
 #include "Blaster/GameState/BlasterGameState.h"
-#include "Blaster/GameMode/BlasterGameMode.h"    // MatchState 命名空间常量
+#include "Blaster/BlasterTypes/MatchState.h"    // 独立 MatchState 常量（与 BlasterGameMode 解耦）
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/GameState.h"
 #include "GameFramework/PlayerStart.h"
@@ -17,6 +17,9 @@ ABombDefusalGameMode::ABombDefusalGameMode()
 	bDelayedStart = true;
 	// 必须设 PlayerStateClass，否则 GetActivePlayers() 里 Cast<ABlasterPlayerState> 失败
 	PlayerStateClass = ABlasterPlayerState::StaticClass();
+	// 必须显式设 GameStateClass：确保客户端创建的 GameState 代理是 ABlasterGameState 类型，
+	// 否则 GetGameState<ABlasterGameState>() 返回 nullptr，所有委托绑定和 OnRep 回调静默失效
+	GameStateClass = ABlasterGameState::StaticClass();
 }
 
 void ABombDefusalGameMode::BeginPlay()
@@ -31,13 +34,6 @@ void ABombDefusalGameMode::BeginPlay()
 		BlasterGameState->RoundEndDuration = RoundEndTime;
 		BlasterGameState->MatchEndDuration = MatchEndTime;
 	}
-}
-
-void ABombDefusalGameMode::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
-{
-	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	DOREPLIFETIME(ABombDefusalGameMode, AttackerAliveCount);
-	DOREPLIFETIME(ABombDefusalGameMode, DefenderAliveCount);
 }
 
 // ========================================================================
@@ -140,6 +136,7 @@ void ABombDefusalGameMode::StartRoundPrepare()
 	// 必须先推送到 GameState，再切 MatchState：
 	// SetMatchState → HandleRoundPrepare → 读 GameState，Sync 在后会导致读到旧值
 	SyncToGameState();
+	if (BlasterGameState) BlasterGameState->BroadcastRoundInfo();  // 委托驱动 Widget 刷新
 	SetMatchState(MatchState::RoundPrepare);
 
 	// 清尸体、重生所有玩家、重置存活计数
@@ -149,12 +146,29 @@ void ABombDefusalGameMode::StartRoundPrepare()
 void ABombDefusalGameMode::StartRoundInProgress()
 {
 	// 重新校准存活计数：RoundPrepare 期间可能有玩家退出导致计数失准
-	AttackerAliveCount = GetPlayersInTeam(ETeamID::ETI_Attacker).Num();
-	DefenderAliveCount = GetPlayersInTeam(ETeamID::ETI_Defender).Num();
+	// 直接写入 GameState（唯一权威源），引擎自动复制到所有客户端
+	if (!BlasterGameState) BlasterGameState = GetGameState<ABlasterGameState>();
+	if (BlasterGameState)
+	{
+		BlasterGameState->AttackerAliveCount = GetPlayersInTeam(ETeamID::ETI_Attacker).Num();
+		BlasterGameState->DefenderAliveCount = GetPlayersInTeam(ETeamID::ETI_Defender).Num();
+		// 重校准后广播：客户端通过 OnRep_AliveCount 自动广播，但服务端无 OnRep 机制，
+		// 必须手动广播确保服务端 RoundOverlay 能看到最新存活人数
+		BlasterGameState->BroadcastAliveCount();
+	}
 
 	// 回合计时器启动：超时 → 保卫者获胜（经典爆破规则）
 	CountdownTime = RoundTime;
 	SetMatchState(MatchState::RoundInProgress);
+
+	// 恢复所有玩家的战斗输入（RoundPrepare 期间被 CleanupBodiesAndRespawn 禁用）
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		if (ABlasterCharacter* Char = Cast<ABlasterCharacter>((*It)->GetPawn()))
+		{
+			Char->bDisableGameplayInput = false;
+		}
+	}
 }
 
 void ABombDefusalGameMode::OnPlayerKilled(ABlasterCharacter* DeadCharacter,
@@ -183,17 +197,18 @@ void ABombDefusalGameMode::OnPlayerKilled(ABlasterCharacter* DeadCharacter,
 		DeadCharacter->Elim();
 	}
 
-	// 事件驱动递减存活计数器（O(1) 判定）
-	if (VictimPS)
+	// 事件驱动递减存活计数器（O(1) 判定，直接写入 GameState 唯一权威源）
+	if (!BlasterGameState) BlasterGameState = GetGameState<ABlasterGameState>();
+	if (VictimPS && BlasterGameState)
 	{
 		if (VictimPS->TeamID == ETeamID::ETI_Attacker)
-			AttackerAliveCount--;
+			BlasterGameState->AttackerAliveCount--;
 		else if (VictimPS->TeamID == ETeamID::ETI_Defender)
-			DefenderAliveCount--;
+			BlasterGameState->DefenderAliveCount--;
+
+		BlasterGameState->BroadcastAliveCount();  // 委托驱动 Widget 刷新
 	}
 
-	// 同步最新的存活计数到 GameState
-	SyncToGameState();
 	CheckRoundEnd();
 }
 
@@ -201,10 +216,11 @@ void ABombDefusalGameMode::CheckRoundEnd()
 {
 	// 仅在战斗中检查：回合结束/准备阶段不重复判定
 	if (MatchState != MatchState::RoundInProgress) return;
+	if (!BlasterGameState) return;
 
-	if (AttackerAliveCount <= 0)
+	if (BlasterGameState->AttackerAliveCount <= 0)
 		EndRound(ETeamID::ETI_Defender);
-	else if (DefenderAliveCount <= 0)
+	else if (BlasterGameState->DefenderAliveCount <= 0)
 		EndRound(ETeamID::ETI_Attacker);
 }
 
@@ -222,6 +238,7 @@ void ABombDefusalGameMode::EndRound(ETeamID Winner)
 
 	// 必须先推送到 GameState，再切 MatchState，确保 HandleRoundEnd 读到最新值
 	SyncToGameState();
+	if (BlasterGameState) BlasterGameState->BroadcastRoundResult();  // 委托驱动 Widget 刷新
 	SetMatchState(MatchState::RoundEnd);
 }
 
@@ -243,6 +260,7 @@ void ABombDefusalGameMode::ConcludeMatch(ETeamID Winner)
 
 	// 必须先推送到 GameState，再切 MatchState，确保 HandleMatchEnd 读到最新值
 	SyncToGameState();
+	if (BlasterGameState) BlasterGameState->BroadcastMatchResult();  // 委托驱动 Widget 刷新
 	SetMatchState(MatchState::MatchEnd);
 }
 
@@ -292,11 +310,22 @@ void ABombDefusalGameMode::CleanupBodiesAndRespawn()
 		{
 			RestartPlayer(PC);
 		}
+
+		// 准备阶段禁止移动/战斗输入，只允许转视角和购买
+		if (ABlasterCharacter* Char = Cast<ABlasterCharacter>(PC->GetPawn()))
+		{
+			Char->bDisableGameplayInput = true;
+		}
 	}
 
-	// 重置存活计数 = 各阵营总人数（低频调用，可遍历）
-	AttackerAliveCount = GetPlayersInTeam(ETeamID::ETI_Attacker).Num();
-	DefenderAliveCount = GetPlayersInTeam(ETeamID::ETI_Defender).Num();
+	// 重置存活计数 = 各阵营总人数（低频调用，可遍历，写入 GameState 唯一权威源）
+	if (!BlasterGameState) BlasterGameState = GetGameState<ABlasterGameState>();
+	if (BlasterGameState)
+	{
+		BlasterGameState->AttackerAliveCount = GetPlayersInTeam(ETeamID::ETI_Attacker).Num();
+		BlasterGameState->DefenderAliveCount = GetPlayersInTeam(ETeamID::ETI_Defender).Num();
+		BlasterGameState->BroadcastAliveCount();  // 委托驱动 Widget 刷新
+	}
 }
 
 // ========================================================================
@@ -371,15 +400,16 @@ void ABombDefusalGameMode::HandleMidRoundLeave(AController* Exiting)
 	{
 		APawn* ExitingPawn = Exiting->GetPawn();
 		ABlasterCharacter* ExitingChar = Cast<ABlasterCharacter>(ExitingPawn);
-		// 仅在未死亡时递减：已死亡的玩家已经递减过了
-		if (ExitingChar && !ExitingChar->IsElimmed())
+		// 仅在未死亡时递减：已死亡的玩家已经在 OnPlayerKilled 中递减过了
+		if (ExitingChar && !ExitingChar->IsElimmed() && BlasterGameState)
 		{
 			if (PS->TeamID == ETeamID::ETI_Attacker)
-				AttackerAliveCount--;
+				BlasterGameState->AttackerAliveCount--;
 			else if (PS->TeamID == ETeamID::ETI_Defender)
-				DefenderAliveCount--;
+				BlasterGameState->DefenderAliveCount--;
+
+			BlasterGameState->BroadcastAliveCount();  // 委托驱动 Widget 刷新
 		}
-		SyncToGameState();
 		CheckRoundEnd();
 	}
 }
@@ -399,8 +429,6 @@ void ABombDefusalGameMode::SyncToGameState()
 	BlasterGameState->DefenderWins = DefenderRoundWins;
 	BlasterGameState->LastRoundWinner = LastRoundWinner;
 	BlasterGameState->LastMatchWinner = LastMatchWinner;
-	BlasterGameState->AttackerAliveCount = AttackerAliveCount;
-	BlasterGameState->DefenderAliveCount = DefenderAliveCount;
 }
 
 // ========================================================================

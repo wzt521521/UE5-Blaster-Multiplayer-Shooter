@@ -229,10 +229,6 @@ void ABlasterPlayerController::SetHUDAnnouncementCountdown(float CountdownTime)
 {
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
 	// 兜底：如果 Announcement 还未创建（ClientJoinMidgame 时 HUD 可能未就绪），在这里补创建
-	if (BlasterHud && BlasterHud->Announcement == nullptr)
-	{
-		BlasterHud->AddAnnouncement();
-	}
 	bool bHUDValid = BlasterHud &&
 		BlasterHud->Announcement &&
 		BlasterHud->Announcement->WarmupTime;
@@ -333,14 +329,37 @@ void ABlasterPlayerController::ClientJoinMidgame_Implementation(FName StateOfMat
 	}
 	// 根据当前实际的 MatchState 初始化 UI（而非 RPC 参数中的可能过时状态）
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (BlasterHud && MatchState == MatchState::WaitingToStart && BlasterHud->Announcement == nullptr)
-	{
-		BlasterHud->AddAnnouncement();
-	}
 	// 热身阶段自动打开购买菜单（仅首次，CreateBuyMenu 内部有重复创建保护）
 	if (BlasterHud && MatchState == MatchState::WaitingToStart && BlasterHud->BuyMenu == nullptr)
 	{
 		OpenBuyMenuOnWarmup();
+	}
+
+	// 炸弹模式中途加入：RPC 设置 MatchState 不会触发 OnRep_MatchState
+	// （因为后续属性复制到达时值相同，OnRep 判定无变化而跳过），
+	// 需手动调用 Handle 函数初始化 Announcement/RoundOverlay 的显隐和 Tick 路径
+	if (BlasterHud)
+	{
+		if (MatchState == MatchState::AssignTeams)
+		{
+			HandleAssignTeams();
+		}
+		else if (MatchState == MatchState::RoundPrepare)
+		{
+			HandleRoundPrepare();
+		}
+		else if (MatchState == MatchState::RoundInProgress)
+		{
+			HandleRoundInProgress();
+		}
+		else if (MatchState == MatchState::RoundEnd)
+		{
+			HandleRoundEnd();
+		}
+		else if (MatchState == MatchState::MatchEnd)
+		{
+			HandleMatchEnd();
+		}
 	}
 }
 
@@ -393,10 +412,6 @@ void ABlasterPlayerController::OnRep_MatchState()//负责同步玩家状态，�
 	{
 		// 复制路径的 WaitingToStart：确保公告面板在热身阶段被创建
 		BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-		if (BlasterHud && BlasterHud->Announcement == nullptr)
-		{
-			BlasterHud->AddAnnouncement();
-		}
 		// 热身阶段自动打开购买菜单（仅首次）
 		if (BlasterHud && BlasterHud->BuyMenu == nullptr)
 		{
@@ -431,11 +446,8 @@ void ABlasterPlayerController::HandleMatchHasStarted(bool bTeamsMatch)
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
 	if (BlasterHud)
 	{
-		if (BlasterHud->CharacterOverlay == nullptr) BlasterHud->AddCharacterOverlay();//显示战斗ui
-		if (BlasterHud->Announcement)
-		{
-			BlasterHud->Announcement->SetVisibility(ESlateVisibility::Hidden);
-		}
+		BlasterHud->ShowCharacterOverlay(); // 显示战斗 UI
+		BlasterHud->Announcement->SetVisibility(ESlateVisibility::Hidden);
 		// 比赛开始，关闭购买菜单（此后 B 键不再生效，ToggleBuyMenu 检查 MatchState）
 		if (bBuyMenuOpen)
 		{
@@ -452,7 +464,7 @@ void ABlasterPlayerController::HandleCooldown()
 		// 比赛结束，移除战斗 HUD（如果存在），显示公告面板
 		if (BlasterHud->CharacterOverlay)
 		{
-			BlasterHud->CharacterOverlay->RemoveFromParent();
+			BlasterHud->HideCharacterOverlay();
 		}
 		bool bHUDValid = BlasterHud->Announcement &&
 			BlasterHud->Announcement->AnnouncementText &&
@@ -480,14 +492,6 @@ void ABlasterPlayerController::HandleCooldown()
 // ------------------------------------------------------------
 void ABlasterPlayerController::OpenBuyMenuOnWarmup()
 {
-	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (BlasterHud == nullptr) return;
-
-	// 懒创建：首次热身时才实例化 widget
-	if (BlasterHud->BuyMenu == nullptr)
-	{
-		BlasterHud->CreateBuyMenu();
-	}
 	ShowBuyMenu();
 }
 
@@ -511,9 +515,10 @@ void ABlasterPlayerController::ShowBuyMenu()
 	if (bBuyMenuOpen) return;
 
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (BlasterHud == nullptr || BlasterHud->BuyMenu == nullptr) return;
+	if (BlasterHud == nullptr) return;
 
-	BlasterHud->BuyMenu->AddToViewport();
+	// Widget 已在 InitializeHUD 中预创建
+	BlasterHud->ShowBuyMenu();
 
 	FInputModeGameAndUI InputMode;
 	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
@@ -530,7 +535,7 @@ void ABlasterPlayerController::HideBuyMenu()
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
 	if (BlasterHud && BlasterHud->BuyMenu)
 	{
-		BlasterHud->BuyMenu->RemoveFromParent();
+		BlasterHud->HideBuyMenu();
 	}
 
 	FInputModeGameOnly InputMode;
@@ -545,6 +550,9 @@ void ABlasterPlayerController::HideBuyMenu()
 // ------------------------------------------------------------
 void ABlasterPlayerController::ShowThrowablePanel()
 {
+	// 仅在 RoundInProgress 阶段允许使用投掷物
+	if (MatchState != MatchState::RoundInProgress) return;
+
 	// Toggle：面板已打开则关闭（取消选择），未打开则打开
 	if (bThrowablePanelOpen)
 	{
@@ -555,12 +563,7 @@ void ABlasterPlayerController::ShowThrowablePanel()
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
 	if (BlasterHud == nullptr) return;
 
-	// 懒创建：首次按 G 时才实例化 widget
-	if (BlasterHud->ThrowableWheel == nullptr)
-	{
-		BlasterHud->CreateThrowableWheel();
-	}
-	if (BlasterHud->ThrowableWheel == nullptr) return;
+	// Widget 已在 InitializeHUD 中预创建
 
 	ABlasterCharacter* BlasterCharacter = Cast<ABlasterCharacter>(GetPawn());
 	if (!BlasterCharacter) return;
@@ -571,7 +574,7 @@ void ABlasterPlayerController::ShowThrowablePanel()
 	// 绑定点击委托：点击按钮 → OnThrowableTypeClicked → 选择类型 + 关闭面板
 	BlasterHud->ThrowableWheel->OnTypeClicked.AddDynamic(this, &ABlasterPlayerController::OnThrowableTypeClicked);
 
-	BlasterHud->ThrowableWheel->AddToViewport();
+	BlasterHud->ShowThrowableWheel();
 	BlasterHud->ThrowableWheel->Show(ThrowableComp);
 
 	// 显示鼠标用于点击选择
@@ -588,13 +591,13 @@ void ABlasterPlayerController::HideThrowablePanel()
 	if (!bThrowablePanelOpen) return;
 
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (BlasterHud == nullptr || BlasterHud->ThrowableWheel == nullptr) return;
+	if (BlasterHud == nullptr) return;
 
 	// 解除委托绑定，避免悬空引用
 	BlasterHud->ThrowableWheel->OnTypeClicked.RemoveDynamic(this, &ABlasterPlayerController::OnThrowableTypeClicked);
 
 	BlasterHud->ThrowableWheel->Hide();
-	BlasterHud->ThrowableWheel->RemoveFromParent();
+	BlasterHud->HideThrowableWheel();
 
 	// 恢复纯游戏输入
 	FInputModeGameOnly InputMode;
@@ -792,10 +795,10 @@ void ABlasterPlayerController::SetHUDTime()
 		{
 			SetHUDMatchCountdown(TimeLeft);
 		}
-		// 回合制倒计时：RoundPrepare / RoundEnd / MatchEnd 均显示在公告面板上
-		if (MatchState == MatchState::RoundPrepare ||
-		    MatchState == MatchState::RoundEnd ||
-		    MatchState == MatchState::MatchEnd)
+		// 回合制倒计时：所有准备/结束阶段均显示在公告面板上
+		if (MatchState == MatchState::RoundPrepare
+			|| MatchState == MatchState::RoundEnd
+			|| MatchState == MatchState::MatchEnd)
 		{
 			SetHUDAnnouncementCountdown(TimeLeft);
 		}
@@ -821,22 +824,6 @@ void ABlasterPlayerController::PollInit()//推送缓存数据
 			}
 		}
 	}
-
-	// 回合制模式下，每帧更新存活人数到 RoundOverlay（从 GameState 读取，服务器/客户端均可用）
-	if (MatchState == MatchState::RoundInProgress)
-	{
-		if (ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>())
-		{
-			SetHUDAliveCount(GS->AttackerAliveCount, GS->DefenderAliveCount);
-		}
-	}
-
-	// 客户端 GS 复制延迟补偿：公告阶段每帧从 GameState 刷公告文本，保证复制到达后立即显示
-	if (!HasAuthority() && (MatchState == MatchState::RoundPrepare ||
-		MatchState == MatchState::RoundEnd || MatchState == MatchState::MatchEnd))
-	{
-		RefreshAnnouncementFromGameState();
-	}
 }
 
 // ========================================================================
@@ -844,68 +831,38 @@ void ABlasterPlayerController::PollInit()//推送缓存数据
 // ========================================================================
 void ABlasterPlayerController::HandleAssignTeams()
 {
-	ABlasterPlayerState* PS = GetPlayerState<ABlasterPlayerState>();
-	if (!PS) return;
-
+	// Announcement 文本由 GameState 委托自动填充，此处只管理可见性
+	// 不检查 PlayerState：客户端 PS 复制可能晚于 MatchState，可见性不依赖 PS
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (BlasterHud && BlasterHud->Announcement == nullptr)
+	if (BlasterHud)
 	{
-		BlasterHud->AddAnnouncement();
-	}
-	if (BlasterHud && BlasterHud->Announcement)
-	{
-		BlasterHud->Announcement->SetVisibility(ESlateVisibility::Visible);
-
-		const FString TeamStr = (PS->TeamID == ETeamID::ETI_Attacker)
-			? TEXT("攻击者") : TEXT("保卫者");
-		const FString AnnounceText = FString::Printf(TEXT("你是%s"), *TeamStr);
-		BlasterHud->Announcement->AnnouncementText->SetText(FText::FromString(AnnounceText));
-		BlasterHud->Announcement->InfoText->SetText(FText());
+		BlasterHud->EnsureAnnouncement();
+		if (BlasterHud->Announcement)
+		{
+			BlasterHud->Announcement->SetVisibility(ESlateVisibility::Visible);
+		}
 	}
 }
 
 void ABlasterPlayerController::HandleRoundPrepare()
 {
-	// 从 GameState 读取回合号/比分（服务器/客户端均可访问）
-	ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>();
-	ABlasterPlayerState* PS = GetPlayerState<ABlasterPlayerState>();
-	if (!GS || !PS) return;
-
-	const int32 RoundNum = GS->CurrentRoundNumber;
-	const int32 AtkWins = GS->AttackerWins;
-	const int32 DefWins = GS->DefenderWins;
-
+	// 先确保公告面板可见（不依赖 PlayerState 是否已复制到客户端）
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (BlasterHud && BlasterHud->Announcement == nullptr)
+	if (BlasterHud)
 	{
-		BlasterHud->AddAnnouncement();
+		BlasterHud->HideCharacterOverlay();
+		BlasterHud->HideRoundOverlay();
+		BlasterHud->EnsureAnnouncement();
+		if (BlasterHud->Announcement)
+		{
+			BlasterHud->Announcement->SetVisibility(ESlateVisibility::Visible);
+		}
 	}
 
-	// 隐藏战斗 HUD 和回合面板，显示公告面板
-	if (BlasterHud && BlasterHud->CharacterOverlay)
-	{
-		BlasterHud->CharacterOverlay->SetVisibility(ESlateVisibility::Hidden);
-	}
-	if (BlasterHud && BlasterHud->RoundOverlay)
-	{
-		BlasterHud->RoundOverlay->SetVisibility(ESlateVisibility::Hidden);
-	}
-
-	if (BlasterHud && BlasterHud->Announcement)
-	{
-		BlasterHud->Announcement->SetVisibility(ESlateVisibility::Visible);
-
-		const FString TeamStr = (PS->TeamID == ETeamID::ETI_Attacker)
-			? TEXT("攻击者") : TEXT("保卫者");
-		const FString AnnounceText = FString::Printf(TEXT("第%d回合"), RoundNum);
-		const FString InfoStr = FString::Printf(TEXT("你是%s"), *TeamStr);
-
-		BlasterHud->Announcement->AnnouncementText->SetText(FText::FromString(AnnounceText));
-		BlasterHud->Announcement->InfoText->SetText(FText::FromString(InfoStr));
-	}
+	// Announcement 文本由 GameState 委托自动填充，此处只管理可见性
 
 	// 推送回合信息到 RoundOverlay（此时隐藏中，切换到 RoundInProgress 时显示）
-	SetHUDRoundInfo(RoundNum, PS->TeamID, AtkWins, DefWins);
+	// RoundOverlay 委托已处理回合信息
 
 	// 客户端：标记需要下一帧用最新 GameState 数据刷新公告（GS 复制可能滞后于 MatchState）
 }
@@ -915,116 +872,79 @@ void ABlasterPlayerController::HandleRoundInProgress()
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
 	if (BlasterHud)
 	{
-		if (BlasterHud->CharacterOverlay == nullptr) BlasterHud->AddCharacterOverlay();
-		if (BlasterHud->CharacterOverlay)
-		{
-			BlasterHud->CharacterOverlay->SetVisibility(ESlateVisibility::Visible);
-		}
-		// 懒创建 RoundOverlay（仅在进入战斗时第一次创建）
-		if (BlasterHud->RoundOverlay == nullptr)
-		{
-			BlasterHud->CreateRoundOverlay();
-		}
-		if (BlasterHud->RoundOverlay)
-		{
-			BlasterHud->RoundOverlay->SetVisibility(ESlateVisibility::Visible);
-			// 首回合补推送：HandleRoundPrepare 时 RoundOverlay 尚未创建，SetHUDRoundInfo 被跳过
-			// 此处从 GameState 读取当前回合信息写入控件，避免显示蓝图默认文本
-			if (ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>())
-			{
-				ABlasterPlayerState* PS = GetPlayerState<ABlasterPlayerState>();
-				SetHUDRoundInfo(GS->CurrentRoundNumber,
-					PS ? PS->TeamID : ETeamID::ETI_None,
-					GS->AttackerWins, GS->DefenderWins);
-			}
-		}
-		if (BlasterHud->Announcement)
-		{
-			BlasterHud->Announcement->SetVisibility(ESlateVisibility::Hidden);
-		}
+		// Widget 已在 InitializeHUD 中预创建，直接 Show/Hide
+		BlasterHud->ShowCharacterOverlay();
+		BlasterHud->ShowRoundOverlay();
+
+		// 数据已由 RoundOverlay 委托绑定 GameState 自动更新，不再需要 PC 搬运
+
+		BlasterHud->Announcement->SetVisibility(ESlateVisibility::Hidden);
 	}
 }
 
 void ABlasterPlayerController::HandleRoundEnd()
 {
-	// 从 GameState 读取回合结果（服务器/客户端均可访问）
+	// 从 GameState 读取（仅做显隐管理，文本由委托处理）
 	ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>();
 	if (!GS) return;
 
-	const ETeamID LastWinner = GS->LastRoundWinner;
-	const int32 AtkWins = GS->AttackerWins;
-	const int32 DefWins = GS->DefenderWins;
-
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (BlasterHud && BlasterHud->Announcement == nullptr)
-	{
-		BlasterHud->AddAnnouncement();
-	}
 
 	if (BlasterHud && BlasterHud->CharacterOverlay)
 	{
-		BlasterHud->CharacterOverlay->SetVisibility(ESlateVisibility::Hidden);
+		BlasterHud->HideCharacterOverlay();
 	}
 	if (BlasterHud && BlasterHud->RoundOverlay)
 	{
-		BlasterHud->RoundOverlay->SetVisibility(ESlateVisibility::Hidden);
+		BlasterHud->HideRoundOverlay();
 	}
 
-	if (BlasterHud && BlasterHud->Announcement)
+	// Announcement 文本由 GameState 委托自动填充，此处只管理可见性
+	if (BlasterHud)
 	{
-		BlasterHud->Announcement->SetVisibility(ESlateVisibility::Visible);
-
-		FString WinnerStr = (LastWinner == ETeamID::ETI_Attacker)
-			? TEXT("攻击者赢得本回合!") : TEXT("保卫者赢得本回合!");
-		BlasterHud->Announcement->AnnouncementText->SetText(FText::FromString(WinnerStr));
-		const FString InfoStr = FString::Printf(TEXT("攻击者 %d - %d 保卫者"), AtkWins, DefWins);
-		BlasterHud->Announcement->InfoText->SetText(FText::FromString(InfoStr));
+		BlasterHud->EnsureAnnouncement();
+		if (BlasterHud->Announcement)
+		{
+			BlasterHud->Announcement->SetVisibility(ESlateVisibility::Visible);
+		}
 	}
 
 	// 推送回合结果到 RoundOverlay
-	SetHUDRoundResult(LastWinner, AtkWins, DefWins);
+	// RoundOverlay 委托已处理回合结果
+	// 数据已由 RoundOverlay 委托处理
 
 	// 客户端：标记需要下一帧用最新 GameState 数据刷新公告
 }
 
 void ABlasterPlayerController::HandleMatchEnd()
 {
-	// 从 GameState 读取比赛结果（服务器/客户端均可访问）
+	// 从 GameState 读取（仅做显隐管理，文本由委托处理）
 	ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>();
 	if (!GS) return;
 
-	const ETeamID MatchWinner = GS->LastMatchWinner;
-	const int32 AtkWins = GS->AttackerWins;
-	const int32 DefWins = GS->DefenderWins;
-
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (BlasterHud && BlasterHud->Announcement == nullptr)
-	{
-		BlasterHud->AddAnnouncement();
-	}
 
 	if (BlasterHud && BlasterHud->CharacterOverlay)
 	{
-		BlasterHud->CharacterOverlay->SetVisibility(ESlateVisibility::Hidden);
+		BlasterHud->HideCharacterOverlay();
 	}
 	if (BlasterHud && BlasterHud->RoundOverlay)
 	{
-		BlasterHud->RoundOverlay->SetVisibility(ESlateVisibility::Hidden);
+		BlasterHud->HideRoundOverlay();
 	}
 
-	FString WinnerStr = (MatchWinner == ETeamID::ETI_Attacker)
-		? TEXT("攻击者赢得比赛!") : TEXT("保卫者赢得比赛!");
-
-	if (BlasterHud && BlasterHud->Announcement)
+	// Announcement 文本由 GameState 委托自动填充，此处只管理可见性
+	if (BlasterHud)
 	{
-		BlasterHud->Announcement->SetVisibility(ESlateVisibility::Visible);
-		BlasterHud->Announcement->AnnouncementText->SetText(FText::FromString(WinnerStr));
-		const FString InfoStr = FString::Printf(TEXT("最终比分 %d - %d\n返回大厅..."), AtkWins, DefWins);
-		BlasterHud->Announcement->InfoText->SetText(FText::FromString(InfoStr));
+		BlasterHud->EnsureAnnouncement();
+		if (BlasterHud->Announcement)
+		{
+			BlasterHud->Announcement->SetVisibility(ESlateVisibility::Visible);
+		}
 	}
 
 	// 推送比赛结果到 RoundOverlay
-	SetHUDMatchResult(MatchWinner);
+	// RoundOverlay 委托已处理比赛结果
 
 	// 客户端：标记需要下一帧用最新 GameState 数据刷新公告
 }
@@ -1032,97 +952,11 @@ void ABlasterPlayerController::HandleMatchEnd()
 // ========================================================================
 // 回合信息 HUD 推送 → RoundOverlay Widget
 // ========================================================================
-void ABlasterPlayerController::SetHUDRoundInfo(int32 InRoundNumber, ETeamID MyTeam,
-	int32 AttackerWins, int32 DefenderWins)
-{
-	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (!BlasterHud || !BlasterHud->RoundOverlay) return;
 
-	BlasterHud->RoundOverlay->RoundNumberText->SetText(
-		FText::FromString(FString::Printf(TEXT("第%d回合"), InRoundNumber)));
 
-	const FString TeamStr = (MyTeam == ETeamID::ETI_Attacker) ? TEXT("攻击者") : TEXT("保卫者");
-	BlasterHud->RoundOverlay->TeamLabel->SetText(FText::FromString(TeamStr));
 
-	BlasterHud->RoundOverlay->ScoreText->SetText(
-		FText::FromString(FString::Printf(TEXT("攻击者 %d - %d 保卫者"), AttackerWins, DefenderWins)));
-}
-
-void ABlasterPlayerController::SetHUDRoundResult(ETeamID Winner, int32 AttackerWins, int32 DefenderWins)
-{
-	// 回合结束时更新比分显示在 RoundOverlay 上
-	SetHUDRoundInfo(0, ETeamID::ETI_None, AttackerWins, DefenderWins);
-	// RoundNumberText 同时显示胜者
-	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (BlasterHud && BlasterHud->RoundOverlay && BlasterHud->RoundOverlay->RoundNumberText)
-	{
-		const FString WinnerStr = (Winner == ETeamID::ETI_Attacker) ? TEXT("攻击者胜") : TEXT("保卫者胜");
-		BlasterHud->RoundOverlay->RoundNumberText->SetText(FText::FromString(WinnerStr));
-	}
-}
-
-void ABlasterPlayerController::SetHUDMatchResult(ETeamID Winner)
-{
-	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (BlasterHud && BlasterHud->RoundOverlay && BlasterHud->RoundOverlay->RoundNumberText)
-	{
-		const FString WinnerStr = (Winner == ETeamID::ETI_Attacker)
-			? TEXT("攻击者赢得比赛!") : TEXT("保卫者赢得比赛!");
-		BlasterHud->RoundOverlay->RoundNumberText->SetText(FText::FromString(WinnerStr));
-	}
-}
-
-void ABlasterPlayerController::SetHUDAliveCount(int32 AttackersAlive, int32 DefendersAlive)
-{
-	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (!BlasterHud || !BlasterHud->RoundOverlay) return;
-
-	BlasterHud->RoundOverlay->AttackerAliveText->SetText(
-		FText::FromString(FString::Printf(TEXT("%d"), AttackersAlive)));
-	BlasterHud->RoundOverlay->DefenderAliveText->SetText(
-		FText::FromString(FString::Printf(TEXT("%d"), DefendersAlive)));
-}
 
 // ========================================================================
 // 客户端 GameState 复制延迟补偿：HandleXxx 中 GS 数据可能尚未到达，
 // PollInit 下一帧调用此函数用最新 GS 数据刷新公告文本
 // ========================================================================
-void ABlasterPlayerController::RefreshAnnouncementFromGameState()
-{
-	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (!BlasterHud || !BlasterHud->Announcement) return;
-
-	ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>();
-	ABlasterPlayerState* PS = GetPlayerState<ABlasterPlayerState>();
-	if (!GS || !PS) return;
-
-	if (MatchState == MatchState::RoundPrepare)
-	{
-		const FString TeamStr = (PS->TeamID == ETeamID::ETI_Attacker)
-			? TEXT("攻击者") : TEXT("保卫者");
-		BlasterHud->Announcement->AnnouncementText->SetText(
-			FText::FromString(FString::Printf(TEXT("第%d回合"), GS->CurrentRoundNumber)));
-		BlasterHud->Announcement->InfoText->SetText(
-			FText::FromString(FString::Printf(TEXT("你是%s"), *TeamStr)));
-	}
-	else if (MatchState == MatchState::RoundEnd)
-	{
-		const FString WinnerStr = (GS->LastRoundWinner == ETeamID::ETI_Attacker)
-			? TEXT("攻击者赢得本回合!") : TEXT("保卫者赢得本回合!");
-		BlasterHud->Announcement->AnnouncementText->SetText(FText::FromString(WinnerStr));
-		BlasterHud->Announcement->InfoText->SetText(
-			FText::FromString(FString::Printf(TEXT("攻击者 %d - %d 保卫者"),
-				GS->AttackerWins, GS->DefenderWins)));
-		SetHUDRoundResult(GS->LastRoundWinner, GS->AttackerWins, GS->DefenderWins);
-	}
-	else if (MatchState == MatchState::MatchEnd)
-	{
-		const FString WinnerStr = (GS->LastMatchWinner == ETeamID::ETI_Attacker)
-			? TEXT("攻击者赢得比赛!") : TEXT("保卫者赢得比赛!");
-		BlasterHud->Announcement->AnnouncementText->SetText(FText::FromString(WinnerStr));
-		BlasterHud->Announcement->InfoText->SetText(
-			FText::FromString(FString::Printf(TEXT("最终比分 %d - %d\n返回大厅..."),
-				GS->AttackerWins, GS->DefenderWins)));
-		SetHUDMatchResult(GS->LastMatchWinner);
-	}
-}

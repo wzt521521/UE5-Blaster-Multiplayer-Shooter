@@ -221,4 +221,8 @@ public:
 	FORCEINLINE class UThrowableComponent* GetThrowable() const { return Throwable; }
 	FORCEINLINE UAnimMontage* GetReloadMontage() const { return ReloadMontage; }
 
+	// 准备阶段禁止移动/战斗输入，只允许转视角和购买（RoundPrepare 期间）
+	UPROPERTY(Replicated)
+	bool bDisableGameplayInput = false;
+
 };

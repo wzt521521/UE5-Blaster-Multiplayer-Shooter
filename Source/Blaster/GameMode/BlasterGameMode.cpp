@@ -8,16 +8,6 @@
 #include "Blaster/PlayerController/BlasterPlayerController.h"
 #include "GameFramework/PlayerStart.h"
 
-namespace MatchState
-{
-	const FName Cooldown = FName("Cooldown");
-	const FName AssignTeams     = FName("AssignTeams");
-	const FName RoundPrepare    = FName("RoundPrepare");
-	const FName RoundInProgress = FName("RoundInProgress");
-	const FName RoundEnd        = FName("RoundEnd");
-	const FName MatchEnd        = FName("MatchEnd");
-}
-
 ABlasterGameMode::ABlasterGameMode()
 {
 	bDelayedStart = true;//获得控制器，但是推迟角色的生成

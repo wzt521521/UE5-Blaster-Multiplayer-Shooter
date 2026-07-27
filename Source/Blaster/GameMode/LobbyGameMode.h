@@ -22,5 +22,5 @@ public:
 
 	// 目标游戏地图路径（支持 ?listen 等参数）
 	UPROPERTY(EditDefaultsOnly, Category = "Lobby")
-	FString GameMapPath = TEXT("/Game/Maps/Bomb_Defusal?listen");
+	FString GameMapPath = TEXT("/Game/Maps/BombDefusalGameMode?listen");
 };

@@ -4,22 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameMode.h"
+#include "Blaster/BlasterTypes/MatchState.h"
 #include "BlasterGameMode.generated.h"
-
-namespace MatchState
-{
-	extern BLASTER_API const FName Cooldown;
-	// 回合制阵营模式扩展：一次性阵营分配（瞬间过渡）
-	extern BLASTER_API const FName AssignTeams;
-	// 回合准备倒计时
-	extern BLASTER_API const FName RoundPrepare;
-	// 战斗中
-	extern BLASTER_API const FName RoundInProgress;
-	// 回合结果播报
-	extern BLASTER_API const FName RoundEnd;
-	// 比赛结果 → 返回大厅
-	extern BLASTER_API const FName MatchEnd;
-}
 
 class ABlasterCharacter;
 class ABlasterPlayerController;

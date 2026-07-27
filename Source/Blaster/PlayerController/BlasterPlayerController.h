@@ -44,11 +44,6 @@ void SetHUDMatchCountdown(float CountdownTime);
 	void HandleMatchEnd();
 
 	// 回合信息 HUD 推送
-	void SetHUDRoundInfo(int32 InRoundNumber, ETeamID MyTeam,
-	                     int32 AttackerWins, int32 DefenderWins);
-	void SetHUDRoundResult(ETeamID Winner, int32 AttackerWins, int32 DefenderWins);
-	void SetHUDMatchResult(ETeamID Winner);
-	void SetHUDAliveCount(int32 AttackersAlive, int32 DefendersAlive);
 
 	// 购买菜单生命周期：热身开始自动打开，B 键切换，比赛开始强制关闭
 	void OpenBuyMenuOnWarmup();
@@ -144,7 +139,6 @@ private:
 	bool bBuyMenuOpen = false;
 
 	// 客户端 GameState 复制延迟补偿：PollInit 中公告阶段每帧刷新公告文本
-	void RefreshAnnouncementFromGameState();
 
 	// 投掷物径向选择面板是否正在显示，ShowThrowablePanel/HideThrowablePanel 维护此标志
 	bool bThrowablePanelOpen = false;

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/GameMode.h"
 #include "Blaster/BlasterTypes/TeamTypes.h"
+#include "Blaster/GameState/BlasterGameState.h"
 #include "BombDefusalGameMode.generated.h"
 
 class ABlasterCharacter;
@@ -22,7 +23,6 @@ public:
 	virtual void PostLogin(APlayerController* NewPlayer) override;
 	virtual void Logout(AController* Exiting) override;
 	virtual void OnMatchStateSet() override;
-	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	// Character 健康值归零时调用 → 递减 AliveCount → CheckRoundEnd
 	void OnPlayerKilled(ABlasterCharacter* DeadCharacter,
@@ -38,9 +38,17 @@ public:
 	UFUNCTION(BlueprintPure)
 	int32 GetDefenderRoundWins() const { return DefenderRoundWins; }
 	UFUNCTION(BlueprintPure)
-	int32 GetAttackerAliveCount() const { return AttackerAliveCount; }
+	int32 GetAttackerAliveCount() const
+	{
+		const ABlasterGameState* GS = GetGameState<ABlasterGameState>();
+		return GS ? GS->AttackerAliveCount : 0;
+	}
 	UFUNCTION(BlueprintPure)
-	int32 GetDefenderAliveCount() const { return DefenderAliveCount; }
+	int32 GetDefenderAliveCount() const
+	{
+		const ABlasterGameState* GS = GetGameState<ABlasterGameState>();
+		return GS ? GS->DefenderAliveCount : 0;
+	}
 	UFUNCTION(BlueprintPure)
 	ETeamID GetLastRoundWinner() const { return LastRoundWinner; }
 	UFUNCTION(BlueprintPure)
@@ -85,12 +93,9 @@ private:
 	int32 DefenderRoundWins = 0;
 	int32 RoundNumber = 0;
 
-	// 事件驱动存活计数器：Tick 中只做 O(1) 比较，不遍历 PlayerArray
-	UPROPERTY(Replicated)
-	int32 AttackerAliveCount = 0;
-
-	UPROPERTY(Replicated)
-	int32 DefenderAliveCount = 0;
+	// GameState 缓存：BeginPlay 时赋值，后续所有 AliveCount 读写直接走 GameState
+	UPROPERTY()
+	class ABlasterGameState* BlasterGameState = nullptr;
 
 	// 标记阵营是否已分配（一场比赛只分配一次）
 	bool bTeamsAssigned = false;
@@ -120,7 +125,4 @@ private:
 
 	// 将 CountdownTime / 回合信息 推送到 GameState，客户端通过 GameState 读取
 	void SyncToGameState();
-
-	UPROPERTY()
-	class ABlasterGameState* BlasterGameState;
 };

@@ -65,16 +65,24 @@ void ABlasterPlayerState::SetTeamID(ETeamID NewTeamID)
 
 void ABlasterPlayerState::OnRep_TeamID()
 {
-    // 客户端收到 TeamID 复制后 → 通知自身 Controller 刷新 HUD 阵营标识
-    // OverheadWidget 在下一帧 Tick 中通过 ShowPlayerTeamRole 读取新 TeamID
+    // 客户端收到 TeamID 复制后 → 广播 GameState 委托，驱动 Widget 刷新阵营相关文本
+    // Announcement::RefreshRoundInfo 依赖 TeamID 判断"你是攻击者/保卫者"，
+    // 但该函数仅由 OnRoundInfoChanged 委托触发；若 TeamID 复制晚于 CurrentRoundNumber，
+    // InfoText 会保持默认值直到下一次委托推送。此处广播确保 TeamID 到达后立即刷新。
+    // RoundOverlay::RefreshRoundInfo 同样依赖此委托刷新 TeamLabel。
+    if (ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>())
+    {
+        GS->BroadcastRoundInfo();
+    }
+
+    // 通知自身 Controller：OverheadWidget 在下一帧 Tick 中通过 ShowPlayerTeamRole 读取新 TeamID
     Character = Character == NULL ? Cast<ABlasterCharacter>(GetPawn()) : Character;
     if (Character)
     {
         Controller = Controller == NULL ? Cast<ABlasterPlayerController>(Character->Controller) : Controller;
         if (Controller)
         {
-            // 阵营变化时刷新 HUD：RoundOverlay 中的阵营标签
-            // 具体 HUD 更新逻辑在 PlayerController 的 HandleAssignTeams 中处理
+            // Controller 已知，OverheadWidget 将在 Tick 中自动读取 TeamID 更新头顶标识
         }
     }
 }

@@ -8,22 +8,19 @@
 #include "BuyMenu.h"
 #include "ThrowableSelectionWheel.h"
 #include "GameFramework/PlayerController.h"
+
 void ABlasterHud::DrawHUD()
 {
 	Super::DrawHUD();
 
-	// 获取屏幕尺寸和中心点
 	FVector2D ViewportSize;
 	if(GEngine)
 	{
 		GEngine->GameViewport->GetViewportSize(ViewportSize);
 		const FVector2D ViewportCenter(ViewportSize.X / 2.f, ViewportSize.Y / 2.f);
 
-		// 按顺序绘制五块准星纹理，每块都以屏幕中心为基准定位
-		// 当前全部叠在中心，后续会根据武器散布（spread）动态偏移各块的位置
-
         float SpreadScaled = HUDPackage.CrosshairSpreadMax * HUDPackage.CrosshairsSpread;
-        
+
 		if(HUDPackage.CrosshairsCenter)
 		{
             FVector2D Spread(0.f, 0.f);
@@ -52,95 +49,181 @@ void ABlasterHud::DrawHUD()
 	}
 }
 
-// 将指定纹理以 ViewportCenter 为中心绘制到屏幕上
 void ABlasterHud::DrawCrosshair(UTexture2D *Texture, FVector2D ViewportCenter,FVector2D Spread, FLinearColor CrosshairColor)
 {
-	// 获取纹理实际像素尺寸
 	const float TextureWidth = Texture->GetSizeX();
 	const float TextureHeight = Texture->GetSizeY();
 
-	// 将纹理中心对齐到目标点：绘制起点 = 目标点 - 纹理尺寸的一半
 	const FVector2D TextureDrawPoint(
 		ViewportCenter.X - (TextureWidth / 2.f)+Spread.X,
 		ViewportCenter.Y - (TextureHeight / 2.f)+Spread.Y
 	);
 
-	// 使用完整 UV（0,0 到 1,1）绘制整张纹理，不裁剪
 	DrawTexture(
 		Texture,
 		TextureDrawPoint.X,
 		TextureDrawPoint.Y,
 		TextureWidth,
 		TextureHeight,
-		0.f,	// 起始 U
-		0.f,	// 起始 V
-		1.f,	// 纹理宽度占比
-		1.f,	// 纹理高度占比
+		0.f, 0.f, 1.f, 1.f,
 		CrosshairColor
 	);
 }
 
+// ========================================================================
+// HUD 初始化：一次性创建所有 Widget，默认不加入 Viewport（隐藏）
+// 后续通过 Show/Hide 函数控制可见性
+// ========================================================================
 void ABlasterHud::BeginPlay()
 {
 	Super::BeginPlay();
+	InitializeHUD();
 }
 
-void ABlasterHud::AddCharacterOverlay()
+void ABlasterHud::InitializeHUD()
 {
 	APlayerController* PlayerController = GetOwningPlayerController();
-	if (PlayerController && CharacterOverlayClass)
+	if (!PlayerController) return;
+
+	// 战斗 HUD（血条/弹药/倒计时）
+	if (CharacterOverlayClass && !CharacterOverlay)
 	{
 		CharacterOverlay = CreateWidget<UCharacteroverlay>(PlayerController, CharacterOverlayClass);
-		CharacterOverlay->AddToViewport();
+	}
+
+	// 公告面板（回合提示/倒计时/结果）—— 预加入 Viewport，默认隐藏
+	if (AnnouncementClass && !Announcement)
+	{
+		Announcement = CreateWidget<UAnnouncement>(PlayerController, AnnouncementClass);
+		Announcement->AddToViewport();
+		Announcement->SetVisibility(ESlateVisibility::Hidden);
+	}
+
+	// 购买菜单
+	if (BuyMenuClass && !BuyMenu)
+	{
+		BuyMenu = CreateWidget<UBuyMenu>(PlayerController, BuyMenuClass);
+	}
+
+	// 投掷物选择面板
+	if (ThrowableWheelClass && !ThrowableWheel)
+	{
+		ThrowableWheel = CreateWidget<UThrowableSelectionWheel>(PlayerController, ThrowableWheelClass);
+	}
+
+	// 回合信息面板（回合数/存活人数/大比分）
+	if (RoundOverlayClass && !RoundOverlay)
+	{
+		RoundOverlay = CreateWidget<URoundOverlay>(PlayerController, RoundOverlayClass);
 	}
 }
 
-void ABlasterHud::AddAnnouncement()
+// ========================================================================
+// CharacterOverlay
+// ========================================================================
+void ABlasterHud::ShowCharacterOverlay()
 {
-	// 防御：已存在则跳过，避免 CreateWidget 生成新实例后旧的泄漏在 Viewport 中
-	if (Announcement) return;
-
-	APlayerController* PlayerController = GetOwningPlayerController();
-	if (PlayerController && AnnouncementClass)
+	if (CharacterOverlay && !CharacterOverlay->IsInViewport())
 	{
-		Announcement = CreateWidget<UAnnouncement>(PlayerController, AnnouncementClass);
+		CharacterOverlay->AddToViewport();
+	}
+	CharacterOverlay->SetVisibility(ESlateVisibility::Visible);
+}
+
+void ABlasterHud::HideCharacterOverlay()
+{
+	if (CharacterOverlay)
+	{
+		CharacterOverlay->SetVisibility(ESlateVisibility::Hidden);
+	}
+}
+
+// ========================================================================
+// Announcement——集中创建 + 首次使用时兜底
+// ========================================================================
+void ABlasterHud::EnsureAnnouncement()
+{
+	// 兜底：如果 InitializeHUD 中创建失败（如客户端异步加载），此处补创建
+	if (!Announcement && AnnouncementClass)
+	{
+		APlayerController* PC = GetOwningPlayerController();
+		if (PC) Announcement = CreateWidget<UAnnouncement>(PC, AnnouncementClass);
+	}
+	if (Announcement && !Announcement->IsInViewport())
+	{
 		Announcement->AddToViewport();
 	}
 }
 
+// ========================================================================
+// BuyMenu
+// ========================================================================
 void ABlasterHud::CreateBuyMenu()
 {
-	// 防御：已存在则跳过，避免重复创建
-	if (BuyMenu) return;
-
-	APlayerController* PlayerController = GetOwningPlayerController();
-	if (PlayerController && BuyMenuClass)
-	{
-		BuyMenu = CreateWidget<UBuyMenu>(PlayerController, BuyMenuClass);
-		// 不调用 AddToViewport()，由 PlayerController::ShowBuyMenu() 控制显示时机
-	}
+	// 集中创建已在 InitializeHUD 中完成，保留空实现兼容旧调用
 }
 
-void ABlasterHud::CreateRoundOverlay()
+void ABlasterHud::ShowBuyMenu()
 {
-	if (RoundOverlay) return;
-
-	APlayerController* PlayerController = GetOwningPlayerController();
-	if (PlayerController && RoundOverlayClass)
+	if (BuyMenu && !BuyMenu->IsInViewport())
 	{
-		RoundOverlay = CreateWidget<URoundOverlay>(PlayerController, RoundOverlayClass);
-		RoundOverlay->AddToViewport();
+		BuyMenu->AddToViewport();
 	}
 }
 
+void ABlasterHud::HideBuyMenu()
+{
+	if (BuyMenu && BuyMenu->IsInViewport())
+	{
+		BuyMenu->RemoveFromParent();
+	}
+}
+
+// ========================================================================
+// ThrowableWheel
+// ========================================================================
 void ABlasterHud::CreateThrowableWheel()
 {
-	// 防御：已存在则跳过，避免重复创建
-	if (ThrowableWheel) return;
+	// 集中创建已在 InitializeHUD 中完成
+}
 
-	APlayerController* PlayerController = GetOwningPlayerController();
-	if (PlayerController && ThrowableWheelClass)
+void ABlasterHud::ShowThrowableWheel()
+{
+	if (ThrowableWheel && !ThrowableWheel->IsInViewport())
 	{
-		ThrowableWheel = CreateWidget<UThrowableSelectionWheel>(PlayerController, ThrowableWheelClass);
+		ThrowableWheel->AddToViewport();
+	}
+}
+
+void ABlasterHud::HideThrowableWheel()
+{
+	if (ThrowableWheel && ThrowableWheel->IsInViewport())
+	{
+		ThrowableWheel->RemoveFromParent();
+	}
+}
+
+// ========================================================================
+// RoundOverlay
+// ========================================================================
+void ABlasterHud::CreateRoundOverlay()
+{
+	// 集中创建已在 InitializeHUD 中完成
+}
+
+void ABlasterHud::ShowRoundOverlay()
+{
+	if (RoundOverlay && !RoundOverlay->IsInViewport())
+	{
+		RoundOverlay->AddToViewport();
+	}
+	RoundOverlay->SetVisibility(ESlateVisibility::Visible);
+}
+
+void ABlasterHud::HideRoundOverlay()
+{
+	if (RoundOverlay)
+	{
+		RoundOverlay->SetVisibility(ESlateVisibility::Hidden);
 	}
 }

@@ -27,6 +27,38 @@ void ABlasterGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &Ou
 // 更新 TopScoringPlayers 数组 —— 始终保持当前最高分玩家（支持并列）
 // 数组通过 DOREPLIFETIME 复制到所有客户端，HandleCooldown 读取显示胜者
 // ------------------------------------------------------------
+void ABlasterGameState::OnRep_AliveCount()
+{
+	OnAliveCountChanged.Broadcast(AttackerAliveCount, DefenderAliveCount);
+}
+
+// ------------------------------------------------------------
+// OnRep 回调：客户端收到 GameState 属性复制时，广播对应的本地委托
+// 服务端由 BombDefusalGameMode 直接调用 BroadcastXxx()；
+// 客户端通过 OnRep → BroadcastXxx() 链获得相同的通知，
+// 确保 RoundOverlay / Announcement 委托绑定在两端行为一致
+// ------------------------------------------------------------
+void ABlasterGameState::OnRep_CurrentRoundNumber()
+{
+	BroadcastRoundInfo();  // 回合号变化 → 广播回合信息
+}
+void ABlasterGameState::OnRep_AttackerWins()
+{
+	BroadcastRoundInfo();  // 胜场变化属于回合信息更新（比分），广播回合信息
+}
+void ABlasterGameState::OnRep_DefenderWins()
+{
+	BroadcastRoundInfo();
+}
+void ABlasterGameState::OnRep_LastRoundWinner()
+{
+	BroadcastRoundResult(); // 回合胜者变化 → 广播回合结果
+}
+void ABlasterGameState::OnRep_LastMatchWinner()
+{
+	BroadcastMatchResult(); // 比赛胜者变化 → 广播比赛结果
+}
+
 void ABlasterGameState::UpdateTopScore(ABlasterPlayerState *ScoringPlayer)
 {
 	if (ScoringPlayer == nullptr) return;

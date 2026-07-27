@@ -253,6 +253,7 @@ void ABlasterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &Ou
 	DOREPLIFETIME_CONDITION(ABlasterCharacter, OverlappingWeapon, COND_OwnerOnly);//注册要复制的变量
 	DOREPLIFETIME_CONDITION(ABlasterCharacter, OverlappingAmmo, COND_OwnerOnly);  // 弹药重叠仅持有者感知
 	DOREPLIFETIME(ABlasterCharacter, Health);
+	DOREPLIFETIME(ABlasterCharacter, bDisableGameplayInput);
 	DOREPLIFETIME(ABlasterCharacter, Shield);
 	DOREPLIFETIME(ABlasterCharacter, bWaitingForNextRound);
 }
@@ -269,6 +270,7 @@ void ABlasterCharacter::Tick(float DeltaTime)
 
 void ABlasterCharacter::MoveForward(float Value)
 {
+		if (bDisableGameplayInput) return;
 	if(Controller != nullptr && Value != 0.f)
 	{
 		const FRotator YawRotation(0.f, Controller->GetControlRotation().Yaw, 0.f);
@@ -279,6 +281,7 @@ void ABlasterCharacter::MoveForward(float Value)
 
 void ABlasterCharacter::MoveRight(float Value)
 {
+		if (bDisableGameplayInput) return;
 	if(Controller != nullptr && Value != 0.f)
 	{
 		const FRotator YawRotation(0.f, Controller->GetControlRotation().Yaw, 0.f);
@@ -299,6 +302,7 @@ void ABlasterCharacter::LookUp(float Value)
 
 void ABlasterCharacter::EquipButtonPressed()
 {
+		if (bDisableGameplayInput) return;
 	// E 键统管武器拾取和弹药拾取，战斗状态空闲时才允许操作
 	if (Combat && Combat->CombatState == ECombatState::ECS_Unoccupied)
 	{
@@ -326,6 +330,7 @@ void ABlasterCharacter::EquipButtonPressed()
 
 void ABlasterCharacter::CrouchButtonPressed()
 {
+		if (bDisableGameplayInput) return;
 	if(bIsCrouched){
 		UnCrouch();
 	}
@@ -337,6 +342,7 @@ void ABlasterCharacter::CrouchButtonPressed()
 
 void ABlasterCharacter::ReloadButtonPressed()
 {
+		if (bDisableGameplayInput) return;
 	if(Combat)
 	{
 		Combat->Reload();
@@ -345,6 +351,7 @@ void ABlasterCharacter::ReloadButtonPressed()
 
 void ABlasterCharacter::AimButtonPressed()
 {
+		if (bDisableGameplayInput) return;
 	if(Combat)
 	{
 		Combat->SetAiming(true);
@@ -353,6 +360,7 @@ void ABlasterCharacter::AimButtonPressed()
 
 void ABlasterCharacter::AimButtonReleased()
 {
+		if (bDisableGameplayInput) return;
 	if(Combat)
 	{
 		Combat->SetAiming(false);
@@ -405,6 +413,7 @@ void ABlasterCharacter::AimOffset(float DeltaTime)//AimOffset 在每台机器上
 
 void ABlasterCharacter::Jump()
 {
+		if (bDisableGameplayInput) return;
 	if(bIsCrouched){
 		UnCrouch();
 	}
@@ -415,6 +424,7 @@ void ABlasterCharacter::Jump()
 
 void ABlasterCharacter::FireButtonPressed()
 {
+		if (bDisableGameplayInput) return;
 	// 投掷模式优先：按住左键蓄力而非开火
 	if (Throwable && Throwable->IsThrowableEquipped())
 	{
@@ -429,6 +439,7 @@ void ABlasterCharacter::FireButtonPressed()
 
 void ABlasterCharacter::FireButtonReleased()
 {
+		if (bDisableGameplayInput) return;
 	// 投掷模式优先：松开左键投出
 	if (Throwable && Throwable->IsCooking())
 	{
@@ -764,6 +775,7 @@ void ABlasterCharacter::SpawDefaultWeapon()
 
 void ABlasterCharacter::ThrowableWheelToggle()
 {
+		if (bDisableGameplayInput) return;
 	if (!Throwable || Throwable->IsCooking()) return;
 
 	BlasterPlayerController = BlasterPlayerController == nullptr

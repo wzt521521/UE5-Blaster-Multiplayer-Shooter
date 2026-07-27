@@ -8,7 +8,7 @@
 class UTexture2D;
 class UCharacteroverlay;
 class URoundOverlay;
-class UUserWidget;
+class UAnnouncement;
 class UBuyMenu;
 class UThrowableSelectionWheel;
 
@@ -40,54 +40,62 @@ public:
 	virtual void DrawHUD() override;
 	virtual void BeginPlay() override;
 
-	// 角色HUD蓝图类（血条/弹药/准星等），蓝图中配置，运行时由AddCharacterOverlay()实例化
+	// ========================================================================
+	// 集中预创建：BeginPlay 时一次性创建所有 Widget（默认隐藏），后续只需 Show/Hide
+	// ========================================================================
+	void InitializeHUD();
+
+	// ========================================================================
+	// Widget 蓝图类（蓝图中配置）
+	// ========================================================================
 	UPROPERTY(EditAnywhere, Category="Player HUD")
 	TSubclassOf<class UUserWidget> CharacterOverlayClass;
-
-	// 角色HUD运行时实例指针，AddCharacterOverlay()创建后赋值，HandleCooldown()中RemoveFromParent移除
 	UPROPERTY()
 	class UCharacteroverlay* CharacterOverlay;
 
-	// 公告面板蓝图类（等待玩家/比赛结束等提示），蓝图中配置，运行时由AddAnnouncement()实例化
 	UPROPERTY(EditAnywhere, Category="Announcements")
 	TSubclassOf<UUserWidget> AnnouncementClass;
-
-	// 公告面板运行时实例指针，AddAnnouncement()创建后赋值，用于切换显示/隐藏和更新文本
 	UPROPERTY()
 	class UAnnouncement* Announcement;
 
-	void AddAnnouncement();
-	void AddCharacterOverlay();
-
-	// 购买菜单蓝图类，蓝图中配置，运行时由 CreateBuyMenu() 实例化
 	UPROPERTY(EditAnywhere, Category = "Player HUD")
 	TSubclassOf<UUserWidget> BuyMenuClass;
-
-	// 购买菜单运行时实例指针，ShowBuyMenu/HideBuyMenu 控制其 AddToViewport/RemoveFromParent
 	UPROPERTY()
 	class UBuyMenu* BuyMenu;
 
-	void CreateBuyMenu();
-
-	// 投掷物径向选择面板蓝图类，蓝图中配置，运行时由 CreateThrowableWheel() 实例化
 	UPROPERTY(EditAnywhere, Category = "Player HUD")
 	TSubclassOf<UUserWidget> ThrowableWheelClass;
-
-	// 投掷物径向选择面板运行时实例指针，ShowThrowablePanel 前懒创建
 	UPROPERTY()
 	UThrowableSelectionWheel* ThrowableWheel;
 
-	void CreateThrowableWheel();
-
-	// 回合信息面板蓝图类，蓝图中配置，运行时由 CreateRoundOverlay() 实例化
 	UPROPERTY(EditAnywhere, Category = "Player HUD")
 	TSubclassOf<UUserWidget> RoundOverlayClass;
-
-	// 回合信息面板运行时实例指针
 	UPROPERTY()
 	URoundOverlay* RoundOverlay;
 
+	// ========================================================================
+	// Show/Hide API —— Widget 已在 InitializeHUD 中创建，这里只控制可见性
+	// ========================================================================
+	void ShowCharacterOverlay();
+	void HideCharacterOverlay();
+
+	// 公告面板（返回已存在的实例，首次调用时创建以兼容旧代码）
+	void EnsureAnnouncement();
+
+	// 购买菜单
+	void CreateBuyMenu();     // 内部调用，集中创建用
+	void ShowBuyMenu();
+	void HideBuyMenu();
+
+	// 投掷物选择
+	void CreateThrowableWheel();
+	void ShowThrowableWheel();
+	void HideThrowableWheel();
+
+	// 回合面板
 	void CreateRoundOverlay();
+	void ShowRoundOverlay();
+	void HideRoundOverlay();
 
 private:
 
