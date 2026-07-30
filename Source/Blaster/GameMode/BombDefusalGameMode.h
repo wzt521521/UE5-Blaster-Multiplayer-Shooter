@@ -4,6 +4,7 @@
 #include "GameFramework/GameMode.h"
 #include "Blaster/BlasterTypes/TeamTypes.h"
 #include "Blaster/GameState/BlasterGameState.h"
+#include "Blaster/BlasterTypes/EconomyTypes.h"
 #include "Blaster/Economy/EconomyConfig.h"
 #include "BombDefusalGameMode.generated.h"
 
@@ -115,13 +116,21 @@ private:
 	UPROPERTY()
 	UEconomyConfig* EconomyConfig = nullptr;
 
+	// ── 回合经济状态（Phase 3-4 临时变量，Phase 5 迁移到 GameState）──
+	int32 TeamARoundWins = 0;      // 逻辑队 A 回合胜场
+	int32 TeamBRoundWins = 0;      // 逻辑队 B 回合胜场
+	int32 TeamALossStreak = 0;     // 逻辑队 A 连败计数
+	int32 TeamBLossStreak = 0;     // 逻辑队 B 连败计数
+	int32 TeamAWinStreak = 0;      // 逻辑队 A 连胜计数
+	int32 TeamBWinStreak = 0;      // 逻辑队 B 连胜计数
+
 	void StartRoundPrepare();
 	void AssignTeamsOnce();             // 比赛开始一次性随机分配阵营
 	void StartRoundInProgress();
 	void CheckRoundEnd();               // O(1) 比较存活计数器
 	void EndRound(ETeamID Winner);
 	void CheckMatchEnd();
-	void ConcludeMatch(ETeamID Winner);
+	void ConcludeMatch(ELogicalTeam Winner);
 	void ReturnToLobby();
 
 	// 中途加入/退出
@@ -135,4 +144,9 @@ private:
 
 	// 将 CountdownTime / 回合信息 推送到 GameState，客户端通过 GameState 读取
 	void SyncToGameState();
+
+	// ── 经济系统辅助（Phase 3）──
+	ELogicalTeam GetLogicalTeamFromRole(ETeamID TeamRole) const;       // 角色 → 逻辑队伍映射
+	TArray<ABlasterPlayerState*> GetPlayersInLogicalTeam(ELogicalTeam LT) const; // 按逻辑队筛选玩家
+	void DistributeRoundEconomy(ELogicalTeam WinningLT);           // 回合经济发放（统一发钱入口）
 };

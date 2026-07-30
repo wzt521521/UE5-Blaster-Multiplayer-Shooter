@@ -13,6 +13,8 @@ void ABlasterPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 
     DOREPLIFETIME(ABlasterPlayerState, Defeats);
     DOREPLIFETIME(ABlasterPlayerState, TeamID);
+    DOREPLIFETIME(ABlasterPlayerState, Money);
+    DOREPLIFETIME(ABlasterPlayerState, LogicalTeam);
 }
 
 void ABlasterPlayerState::AddToScore(float ScoreAmount)
@@ -85,4 +87,59 @@ void ABlasterPlayerState::OnRep_TeamID()
             // Controller 已知，OverheadWidget 将在 Tick 中自动读取 TeamID 更新头顶标识
         }
     }
+}
+
+// ========================================================================
+// 经济系统方法
+// ========================================================================
+void ABlasterPlayerState::AddMoney(int32 Amount)
+{
+    // ── 加钱逻辑（服务端权威）──
+    // Phase 3 DistributeRoundEconomy 和 Phase 6 BuyMenu 均调用此函数
+    const int32 OldMoney = Money;
+    Money += Amount;
+
+    // 上限裁剪：Phase 5 从 GameState->EconomyConfig->MaxMoney 读取后启用
+    // 当前 Phase 2-4 中 MaxMoney=-1（无上限），裁剪暂不生效
+
+    // 广播 Money 变化委托：驱动 BuyMenu/HUD 刷新
+    OnMoneyChanged.Broadcast(Money, Amount);
+
+    UE_LOG(LogTemp, Log, TEXT("[Economy] Player %s: Money %d -> %d (Delta: %d)"),
+        *GetPlayerName(), OldMoney, Money, Amount);
+}
+
+void ABlasterPlayerState::SetLogicalTeam(ELogicalTeam NewTeam)
+{
+    // ── 逻辑队伍 Setter（服务器权威，仅 AssignTeamsOnce 中调用一次）──
+    // LogicalTeam 半场交换后不变，所以这个函数一场比赛只会被调用一次
+    LogicalTeam = NewTeam;
+    // 非服务器环境立即走 OnRep 通知逻辑
+    if (!HasAuthority())
+    {
+        OnRep_LogicalTeam();
+    }
+}
+
+void ABlasterPlayerState::ResetRoundKills()
+{
+    RoundKills = 0;
+}
+
+void ABlasterPlayerState::IncrementRoundKills()
+{
+    RoundKills++;
+}
+
+void ABlasterPlayerState::OnRep_Money()
+{
+    // 客户端收到 Money 复制后 → 广播委托驱动 Widget 刷新
+    // 客户端不知道 Delta（OnRep 无参数），传 0 表示"同步更新而非增减"
+    OnMoneyChanged.Broadcast(Money, 0);
+}
+
+void ABlasterPlayerState::OnRep_LogicalTeam()
+{
+    // LogicalTeam 到达客户端，当前无需额外逻辑
+    // 后续 Widget 直接从 PlayerState 读取此值
 }

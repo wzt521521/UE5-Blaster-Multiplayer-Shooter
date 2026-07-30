@@ -4,6 +4,7 @@
 #include "Blaster/PlayerState/BlasterPlayerState.h"
 #include "Blaster/GameState/BlasterGameState.h"
 #include "Blaster/BlasterTypes/MatchState.h"    // 独立 MatchState 常量（与 BlasterGameMode 解耦）
+#include "Blaster/BlasterTypes/EconomyTypes.h" // ELogicalTeam 枚举 — AssignTeamsOnce/PostLogin 直接使用
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/GameState.h"
 #include "GameFramework/PlayerStart.h"
@@ -129,6 +130,20 @@ void ABombDefusalGameMode::AssignTeamsOnce()
 	{
 		ETeamID Team = (i < AttackerCount) ? ETeamID::ETI_Attacker : ETeamID::ETI_Defender;
 		ActivePlayers[i]->SetTeamID(Team);
+
+		// ── 新增：分配 LogicalTeam ──
+		// 前一半 → TeamA，后一半 → TeamB（与 Attacker/Defender 分配一致，上半场 TeamA=Attacker）
+		ELogicalTeam LT = (i < AttackerCount) ? ELogicalTeam::ELT_TeamA : ELogicalTeam::ELT_TeamB;
+		ActivePlayers[i]->SetLogicalTeam(LT);
+
+		// ── 新增：发放起始金 ──
+		if (EconomyConfig)
+		{
+			ActivePlayers[i]->Money = EconomyConfig->StartingMoney;  // $200
+		}
+
+		// ── 新增：归零 RoundKills ──
+		ActivePlayers[i]->ResetRoundKills();
 	}
 }
 
@@ -164,6 +179,15 @@ void ABombDefusalGameMode::StartRoundInProgress()
 		BlasterGameState->BroadcastAliveCount();
 	}
 
+	// 归零所有玩家的回合击杀计数（新回合战斗开始）
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		if (ABlasterPlayerState* PS = (*It)->GetPlayerState<ABlasterPlayerState>())
+		{
+			PS->ResetRoundKills();
+		}
+	}
+
 	// 回合计时器启动：超时 → 保卫者获胜（经典爆破规则）
 	CountdownTime = RoundTime;
 	SetMatchState(MatchState::RoundInProgress);
@@ -192,6 +216,8 @@ void ABombDefusalGameMode::OnPlayerKilled(ABlasterCharacter* DeadCharacter,
 	if (AttackerPS && AttackerPS != VictimPS)
 	{
 		AttackerPS->AddToScore(1.f);
+		// ── 经济系统：回合击杀计数 +1（不发钱，回合结束时统一结算）──
+		AttackerPS->IncrementRoundKills();
 	}
 	if (VictimPS)
 	{
@@ -236,10 +262,21 @@ void ABombDefusalGameMode::EndRound(ETeamID Winner)
 	// 存储上一回合胜者，供 HandleRoundEnd 显示
 	LastRoundWinner = Winner;
 
+	// ── 映射 Winner(ETeamID) → LogicalTeam，递增逻辑队胜场 ──
+	ELogicalTeam WinningLT = GetLogicalTeamFromRole(Winner);
+	if (WinningLT == ELogicalTeam::ELT_TeamA)
+		TeamARoundWins++;
+	else if (WinningLT == ELogicalTeam::ELT_TeamB)
+		TeamBRoundWins++;
+
+	// 保持旧字段同步（Phase 5 移除）
 	if (Winner == ETeamID::ETI_Attacker)
 		AttackerRoundWins++;
 	else if (Winner == ETeamID::ETI_Defender)
 		DefenderRoundWins++;
+
+	// ── 回合经济发放（所有金钱变动的唯一入口）──
+	DistributeRoundEconomy(WinningLT);
 
 	CountdownTime = RoundEndTime;
 
@@ -251,18 +288,21 @@ void ABombDefusalGameMode::EndRound(ETeamID Winner)
 
 void ABombDefusalGameMode::CheckMatchEnd()
 {
-	if (AttackerRoundWins >= RoundsToWin)
-		ConcludeMatch(ETeamID::ETI_Attacker);
-	else if (DefenderRoundWins >= RoundsToWin)
-		ConcludeMatch(ETeamID::ETI_Defender);
+	if (TeamARoundWins >= RoundsToWin)
+		ConcludeMatch(ELogicalTeam::ELT_TeamA);
+	else if (TeamBRoundWins >= RoundsToWin)
+		ConcludeMatch(ELogicalTeam::ELT_TeamB);
+	// Phase 4 在此插入半场判断
 	else
 		StartRoundPrepare(); // 继续下一回合
 }
 
-void ABombDefusalGameMode::ConcludeMatch(ETeamID Winner)
+void ABombDefusalGameMode::ConcludeMatch(ELogicalTeam Winner)
 {
-	// 存储比赛最终胜者，供 HandleMatchEnd 显示
-	LastMatchWinner = Winner;
+	// ── 映射 LogicalTeam → ETeamID（Phase 3 直映射：TeamA=Attacker, TeamB=Defender）──
+	LastMatchWinner = (Winner == ELogicalTeam::ELT_TeamA)
+		? ETeamID::ETI_Attacker : ETeamID::ETI_Defender;
+
 	CountdownTime = MatchEndTime;
 
 	// 必须先推送到 GameState，再切 MatchState，确保 HandleMatchEnd 读到最新值
@@ -361,8 +401,13 @@ void ABombDefusalGameMode::PostLogin(APlayerController* NewPlayer)
 
 	if (bTeamsAssigned)
 	{
-		// 比赛已开始 → 中途加入处理
-		HandleMidRoundJoin(NewPlayer);
+		// ── 经济系统要求：比赛开始后拒绝中途加入 ──
+		// 设为 ELT_None + Spectator，确保 GetActivePlayers() 不选中，Phase 3 经济遍历无污染
+		if (ABlasterPlayerState* PS = NewPlayer->GetPlayerState<ABlasterPlayerState>())
+		{
+			PS->SetLogicalTeam(ELogicalTeam::ELT_None);
+			PS->SetIsSpectator(true);
+		}
 	}
 	// else：比赛未开始，AssignTeamsOnce 时统一分配
 }
@@ -472,4 +517,96 @@ TArray<ABlasterPlayerState*> ABombDefusalGameMode::GetActivePlayers() const
 		}
 	}
 	return Result;
+}
+
+// ========================================================================
+// 经济系统辅助函数
+// ========================================================================
+
+// ── 角色 → 逻辑队伍映射 ──
+// Phase 3 无半场交换：上半场 TeamA=Attacker, TeamB=Defender
+// Phase 4 加入 bIsSecondHalf 后：下半场 TeamA=Defender, TeamB=Attacker
+ELogicalTeam ABombDefusalGameMode::GetLogicalTeamFromRole(ETeamID TeamRole) const
+{
+	if (TeamRole == ETeamID::ETI_Attacker) return ELogicalTeam::ELT_TeamA;
+	if (TeamRole == ETeamID::ETI_Defender) return ELogicalTeam::ELT_TeamB;
+	return ELogicalTeam::ELT_None;
+}
+
+// ── 按 LogicalTeam 筛选玩家 ──
+TArray<ABlasterPlayerState*> ABombDefusalGameMode::GetPlayersInLogicalTeam(ELogicalTeam LT) const
+{
+	TArray<ABlasterPlayerState*> Result;
+	if (!GameState) return Result;
+
+	for (APlayerState* PS : GameState->PlayerArray)
+	{
+		ABlasterPlayerState* BPS = Cast<ABlasterPlayerState>(PS);
+		if (BPS && BPS->LogicalTeam == LT && !BPS->IsSpectator())
+		{
+			Result.Add(BPS);
+		}
+	}
+	return Result;
+}
+
+// ── 回合经济发放（EndRound 末尾调用，所有金钱变动的唯一入口）──
+void ABombDefusalGameMode::DistributeRoundEconomy(ELogicalTeam WinningLT)
+{
+	if (!EconomyConfig) return;
+
+	// ① 确定败方
+	ELogicalTeam LosingLT = (WinningLT == ELogicalTeam::ELT_TeamA)
+		? ELogicalTeam::ELT_TeamB : ELogicalTeam::ELT_TeamA;
+
+	// ② ⚠ 快照胜方连败次数 —— 必须在归零前！
+	int32 SnapshotLoss = (WinningLT == ELogicalTeam::ELT_TeamA)
+		? TeamALossStreak : TeamBLossStreak;
+
+	// ③ 更新计数器
+	//    胜方：连败归零（消耗），连胜递增；败方：连胜归零，连败递增
+	if (WinningLT == ELogicalTeam::ELT_TeamA)
+	{
+		TeamALossStreak = 0;
+		TeamAWinStreak++;
+		TeamBWinStreak = 0;
+		TeamBLossStreak++;
+	}
+	else
+	{
+		TeamBLossStreak = 0;
+		TeamBWinStreak++;
+		TeamAWinStreak = 0;
+		TeamALossStreak++;
+	}
+
+	// ④ 计算胜方奖励
+	int32 LossBonus = EconomyConfig->GetLossBonus(SnapshotLoss);
+	int32 WinStreak = (WinningLT == ELogicalTeam::ELT_TeamA)
+		? TeamAWinStreak : TeamBWinStreak;
+	int32 BaseReward = (WinStreak >= EconomyConfig->WinStreakThreshold)
+		? EconomyConfig->WinStreakPenalty
+		: EconomyConfig->WinBaseReward;
+
+	// ⑤ 发放：胜方每人 BaseReward + LossBonus + KillReward×RoundKills
+	for (ABlasterPlayerState* PS : GetPlayersInLogicalTeam(WinningLT))
+	{
+		PS->AddMoney(BaseReward + LossBonus);
+		PS->AddMoney(PS->GetRoundKills() * EconomyConfig->KillReward);
+		PS->ResetRoundKills();
+	}
+
+	// ⑥ 发放：败方每人 LossParticipation + KillReward×RoundKills
+	for (ABlasterPlayerState* PS : GetPlayersInLogicalTeam(LosingLT))
+	{
+		PS->AddMoney(EconomyConfig->LossParticipation);
+		PS->AddMoney(PS->GetRoundKills() * EconomyConfig->KillReward);
+		PS->ResetRoundKills();
+	}
+
+	// ⑦ 炸弹奖励预留（Phase 3 写死跳过）
+
+	UE_LOG(LogTemp, Log, TEXT("[Economy] Round distributed: Winner=%s | Base=%d + LossBonus=%d"),
+		WinningLT == ELogicalTeam::ELT_TeamA ? TEXT("TeamA") : TEXT("TeamB"),
+		BaseReward, LossBonus);
 }
