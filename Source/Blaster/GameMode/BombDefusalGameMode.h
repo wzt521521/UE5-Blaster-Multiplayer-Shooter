@@ -4,6 +4,7 @@
 #include "GameFramework/GameMode.h"
 #include "Blaster/BlasterTypes/TeamTypes.h"
 #include "Blaster/GameState/BlasterGameState.h"
+#include "Blaster/Economy/EconomyConfig.h"
 #include "BombDefusalGameMode.generated.h"
 
 class ABlasterCharacter;
@@ -86,6 +87,11 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Round Settings")
 	FString LobbyMapPath = TEXT("/Game/Maps/Lobby");
 
+	// ── 经济系统配置 ──
+	// 指向 DA_EconomyConfig DataAsset，BeginPlay 时加载
+	UPROPERTY(EditDefaultsOnly, Category = "Economy")
+	TSoftObjectPtr<UEconomyConfig> EconomyConfigRef;
+
 private:
 	// ---- 回合生命周期 ----
 	float CountdownTime = 0.f;
@@ -104,6 +110,10 @@ private:
 	ETeamID LastRoundWinner = ETeamID::ETI_None;
 	// 比赛最终胜者（HandleMatchEnd 显示用）
 	ETeamID LastMatchWinner = ETeamID::ETI_None;
+
+	// ── 经济配置运行时指针（服务端，BeginPlay 中同步加载）──
+	UPROPERTY()
+	UEconomyConfig* EconomyConfig = nullptr;
 
 	void StartRoundPrepare();
 	void AssignTeamsOnce();             // 比赛开始一次性随机分配阵营

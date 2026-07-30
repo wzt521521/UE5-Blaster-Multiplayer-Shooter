@@ -11,5 +11,6 @@ namespace MatchState
 	extern BLASTER_API const FName RoundPrepare;
 	extern BLASTER_API const FName RoundInProgress;
 	extern BLASTER_API const FName RoundEnd;
+	extern BLASTER_API const FName HalftimeSwap;    // 半场交换阶段
 	extern BLASTER_API const FName MatchEnd;
 }

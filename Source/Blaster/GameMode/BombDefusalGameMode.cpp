@@ -34,6 +34,13 @@ void ABombDefusalGameMode::BeginPlay()
 		BlasterGameState->RoundEndDuration = RoundEndTime;
 		BlasterGameState->MatchEndDuration = MatchEndTime;
 	}
+
+	// ===== ECONOMY CONFIG =====
+	// 加载经济配置 DataAsset（仅服务端，客户端通过 GameState 获取）
+	if (HasAuthority() && !EconomyConfigRef.IsNull())
+	{
+		EconomyConfig = EconomyConfigRef.LoadSynchronous();
+	}
 }
 
 // ========================================================================
