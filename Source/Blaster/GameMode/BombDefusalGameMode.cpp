@@ -37,10 +37,15 @@ void ABombDefusalGameMode::BeginPlay()
 	}
 
 	// ===== ECONOMY CONFIG =====
-	// 加载经济配置 DataAsset（仅服务端，客户端通过 GameState 获取）
+	// 加载经济配置 DataAsset → 写入 GameState（Phase 5 迁移）
 	if (HasAuthority() && !EconomyConfigRef.IsNull())
 	{
-		EconomyConfig = EconomyConfigRef.LoadSynchronous();
+		UEconomyConfig* Config = EconomyConfigRef.LoadSynchronous();
+		if (BlasterGameState)
+		{
+			BlasterGameState->EconomyConfig = Config;
+			BlasterGameState->HalftimeRound = HalftimeRound;
+		}
 	}
 }
 
@@ -148,9 +153,9 @@ void ABombDefusalGameMode::AssignTeamsOnce()
 		ActivePlayers[i]->SetLogicalTeam(LT);
 
 		// ── 新增：发放起始金 ──
-		if (EconomyConfig)
+		if (BlasterGameState && BlasterGameState->EconomyConfig)
 		{
-			ActivePlayers[i]->Money = EconomyConfig->StartingMoney;  // $200
+			ActivePlayers[i]->Money = BlasterGameState->EconomyConfig->StartingMoney;  // $200
 		}
 
 		// ── 新增：归零 RoundKills ──
@@ -273,18 +278,9 @@ void ABombDefusalGameMode::EndRound(ETeamID Winner)
 	// 存储上一回合胜者，供 HandleRoundEnd 显示
 	LastRoundWinner = Winner;
 
-	// ── 映射 Winner(ETeamID) → LogicalTeam，递增逻辑队胜场 ──
+	// ── 映射 Winner(ETeamID) → LogicalTeam，递增逻辑队胜场（直接写入 GameState）──
 	ELogicalTeam WinningLT = GetLogicalTeamFromRole(Winner);
-	if (WinningLT == ELogicalTeam::ELT_TeamA)
-		TeamARoundWins++;
-	else if (WinningLT == ELogicalTeam::ELT_TeamB)
-		TeamBRoundWins++;
-
-	// 保持旧字段同步（Phase 5 移除）
-	if (Winner == ETeamID::ETI_Attacker)
-		AttackerRoundWins++;
-	else if (Winner == ETeamID::ETI_Defender)
-		DefenderRoundWins++;
+	if (BlasterGameState) BlasterGameState->AddRoundWin(WinningLT);
 
 	// ── 回合经济发放（所有金钱变动的唯一入口）──
 	DistributeRoundEconomy(WinningLT);
@@ -299,17 +295,19 @@ void ABombDefusalGameMode::EndRound(ETeamID Winner)
 
 void ABombDefusalGameMode::CheckMatchEnd()
 {
-	if (TeamARoundWins >= RoundsToWin)
+	if (!BlasterGameState) return;
+
+	if (BlasterGameState->GetRoundWinsForTeam(ELogicalTeam::ELT_TeamA) >= RoundsToWin)
 		ConcludeMatch(ELogicalTeam::ELT_TeamA);
-	else if (TeamBRoundWins >= RoundsToWin)
+	else if (BlasterGameState->GetRoundWinsForTeam(ELogicalTeam::ELT_TeamB) >= RoundsToWin)
 		ConcludeMatch(ELogicalTeam::ELT_TeamB);
-	else if (RoundNumber == HalftimeRound && !bIsSecondHalf)
+	else if (RoundNumber == BlasterGameState->HalftimeRound && !BlasterGameState->bIsSecondHalf)
 	{
-		CountdownTime = HalftimeSwapTime;  // 设置半场倒计时
+		CountdownTime = HalftimeSwapTime;
 		SetMatchState(MatchState::HalftimeSwap);
 	}
 	else
-		StartRoundPrepare(); // 继续下一回合
+		StartRoundPrepare();
 }
 
 void ABombDefusalGameMode::ConcludeMatch(ELogicalTeam Winner)
@@ -317,7 +315,12 @@ void ABombDefusalGameMode::ConcludeMatch(ELogicalTeam Winner)
 	// ── 映射 LogicalTeam → ETeamID（按当前半场反推）──
 	// 上半场: TeamA=Attacker, TeamB=Defender
 	// 下半场: TeamA=Defender, TeamB=Attacker
-	if (bIsSecondHalf)
+	// ── 写入新字段：ELogicalTeam 维度（Phase 5 新增）──
+	if (BlasterGameState) BlasterGameState->LastMatchWinnerLT = Winner;
+
+	// 旧字段：按半场反推 ETeamID（Widget 仍通过旧字段读比赛胜者）
+	const bool bSecondHalf = BlasterGameState ? BlasterGameState->bIsSecondHalf : false;
+	if (bSecondHalf)
 	{
 		LastMatchWinner = (Winner == ELogicalTeam::ELT_TeamA)
 			? ETeamID::ETI_Defender : ETeamID::ETI_Attacker;
@@ -502,8 +505,6 @@ void ABombDefusalGameMode::SyncToGameState()
 	if (!BlasterGameState) return;
 
 	BlasterGameState->CurrentRoundNumber = RoundNumber;
-	BlasterGameState->AttackerWins = AttackerRoundWins;
-	BlasterGameState->DefenderWins = DefenderRoundWins;
 	BlasterGameState->LastRoundWinner = LastRoundWinner;
 	BlasterGameState->LastMatchWinner = LastMatchWinner;
 }
@@ -553,15 +554,14 @@ TArray<ABlasterPlayerState*> ABombDefusalGameMode::GetActivePlayers() const
 // 下半场: Attacker=TeamB, Defender=TeamA（角色翻转后）
 ELogicalTeam ABombDefusalGameMode::GetLogicalTeamFromRole(ETeamID TeamRole) const
 {
-	if (!bIsSecondHalf)
+	const bool bSecondHalf = BlasterGameState ? BlasterGameState->bIsSecondHalf : false;
+	if (!bSecondHalf)
 	{
-		// 上半场：直映射
 		if (TeamRole == ETeamID::ETI_Attacker) return ELogicalTeam::ELT_TeamA;
 		if (TeamRole == ETeamID::ETI_Defender) return ELogicalTeam::ELT_TeamB;
 	}
 	else
 	{
-		// 下半场：角色翻转，映射翻转
 		if (TeamRole == ETeamID::ETI_Attacker) return ELogicalTeam::ELT_TeamB;
 		if (TeamRole == ETeamID::ETI_Defender) return ELogicalTeam::ELT_TeamA;
 	}
@@ -588,58 +588,44 @@ TArray<ABlasterPlayerState*> ABombDefusalGameMode::GetPlayersInLogicalTeam(ELogi
 // ── 回合经济发放（EndRound 末尾调用，所有金钱变动的唯一入口）──
 void ABombDefusalGameMode::DistributeRoundEconomy(ELogicalTeam WinningLT)
 {
-	if (!EconomyConfig) return;
+	if (!BlasterGameState || !BlasterGameState->EconomyConfig) return;
+
+	UEconomyConfig* Config = BlasterGameState->EconomyConfig;
 
 	// ① 确定败方
 	ELogicalTeam LosingLT = (WinningLT == ELogicalTeam::ELT_TeamA)
 		? ELogicalTeam::ELT_TeamB : ELogicalTeam::ELT_TeamA;
 
 	// ② ⚠ 快照胜方连败次数 —— 必须在归零前！
-	int32 SnapshotLoss = (WinningLT == ELogicalTeam::ELT_TeamA)
-		? TeamALossStreak : TeamBLossStreak;
+	int32 SnapshotLoss = BlasterGameState->GetLossStreakForTeam(WinningLT);
 
-	// ③ 更新计数器
-	//    胜方：连败归零（消耗），连胜递增；败方：连胜归零，连败递增
-	if (WinningLT == ELogicalTeam::ELT_TeamA)
-	{
-		TeamALossStreak = 0;
-		TeamAWinStreak++;
-		TeamBWinStreak = 0;
-		TeamBLossStreak++;
-	}
-	else
-	{
-		TeamBLossStreak = 0;
-		TeamBWinStreak++;
-		TeamAWinStreak = 0;
-		TeamALossStreak++;
-	}
+	// ③ 更新计数器（直接写入 GameState）
+	BlasterGameState->ResetLossStreak(WinningLT);
+	BlasterGameState->IncrementWinStreak(WinningLT);
+	BlasterGameState->ResetWinStreak(LosingLT);
+	BlasterGameState->IncrementLossStreak(LosingLT);
 
 	// ④ 计算胜方奖励
-	int32 LossBonus = EconomyConfig->GetLossBonus(SnapshotLoss);
-	int32 WinStreak = (WinningLT == ELogicalTeam::ELT_TeamA)
-		? TeamAWinStreak : TeamBWinStreak;
-	int32 BaseReward = (WinStreak >= EconomyConfig->WinStreakThreshold)
-		? EconomyConfig->WinStreakPenalty
-		: EconomyConfig->WinBaseReward;
+	int32 LossBonus = Config->GetLossBonus(SnapshotLoss);
+	int32 WinStreak = BlasterGameState->GetWinStreakForTeam(WinningLT);
+	int32 BaseReward = (WinStreak >= Config->WinStreakThreshold)
+		? Config->WinStreakPenalty : Config->WinBaseReward;
 
 	// ⑤ 发放：胜方每人 BaseReward + LossBonus + KillReward×RoundKills
 	for (ABlasterPlayerState* PS : GetPlayersInLogicalTeam(WinningLT))
 	{
 		PS->AddMoney(BaseReward + LossBonus);
-		PS->AddMoney(PS->GetRoundKills() * EconomyConfig->KillReward);
+		PS->AddMoney(PS->GetRoundKills() * Config->KillReward);
 		PS->ResetRoundKills();
 	}
 
 	// ⑥ 发放：败方每人 LossParticipation + KillReward×RoundKills
 	for (ABlasterPlayerState* PS : GetPlayersInLogicalTeam(LosingLT))
 	{
-		PS->AddMoney(EconomyConfig->LossParticipation);
-		PS->AddMoney(PS->GetRoundKills() * EconomyConfig->KillReward);
+		PS->AddMoney(Config->LossParticipation);
+		PS->AddMoney(PS->GetRoundKills() * Config->KillReward);
 		PS->ResetRoundKills();
 	}
-
-	// ⑦ 炸弹奖励预留（Phase 3 写死跳过）
 
 	UE_LOG(LogTemp, Log, TEXT("[Economy] Round distributed: Winner=%s | Base=%d + LossBonus=%d"),
 		WinningLT == ELogicalTeam::ELT_TeamA ? TEXT("TeamA") : TEXT("TeamB"),
@@ -649,45 +635,36 @@ void ABombDefusalGameMode::DistributeRoundEconomy(ELogicalTeam WinningLT)
 // ── 半场交换（MR12：第 12 局结束后执行）──
 void ABombDefusalGameMode::ExecuteHalftimeSwap()
 {
-	if (!EconomyConfig) return;
+	if (!BlasterGameState || !BlasterGameState->EconomyConfig) return;
 
-	// ① ⚠ 标记下半场 —— 必须在角色翻转之前！
-	//    下半场第一局 EndRound 中 GetLogicalTeamFromRole 依赖此值，
-	//    如果不先设 true，WinningLogicalTeam 会算反
-	bIsSecondHalf = true;
+	UEconomyConfig* Config = BlasterGameState->EconomyConfig;
 
-	// ②+④ 遍历所有玩家：翻转 ETeamID + 经济重置（合并循环减少遍历）
+	// ① 标记下半场（写入 GameState，必须在角色翻转之前）
+	BlasterGameState->bIsSecondHalf = true;
+
+	// ②+④ 翻转 ETeamID + 经济重置
 	for (APlayerState* PS : GameState->PlayerArray)
 	{
 		ABlasterPlayerState* BPS = Cast<ABlasterPlayerState>(PS);
 		if (!BPS || BPS->IsSpectator()) continue;
 
-		// ② 翻转角色：Attacker ↔ Defender（LogicalTeam 不变）
 		if (BPS->TeamID == ETeamID::ETI_Attacker)
 			BPS->SetTeamID(ETeamID::ETI_Defender);
 		else if (BPS->TeamID == ETeamID::ETI_Defender)
 			BPS->SetTeamID(ETeamID::ETI_Attacker);
 
-		// ④ 经济重置：Money = StartingMoney ($200)
-		BPS->Money = EconomyConfig->StartingMoney;
+		BPS->Money = Config->StartingMoney;
 		BPS->OnMoneyChanged.Broadcast(BPS->Money, 0);
 	}
 
-	// ③ 交换旧 AttackerRoundWins ↔ DefenderRoundWins
-	//    旧字段是角色维度。角色翻转后比分必须跟随，
-	//    否则 GameState 同步到 Widget 的比分是反的（Phase 5 删除此补偿）
-	Swap(AttackerRoundWins, DefenderRoundWins);
+	// ③ 旧字段交换 —— Phase 5 删除！新字段是 LogicalTeam 维度不需要交换
 
-	// ⑤ 连胜/连败计数器全部归零（比分不重置！）
-	TeamALossStreak = 0;
-	TeamBLossStreak = 0;
-	TeamAWinStreak = 0;
-	TeamBWinStreak = 0;
+	// ⑤ 连胜/连败归零（比分不重置）
+	BlasterGameState->ResetAllStreaks();
 
-	// ⑥ 同步 GameState + 通知客户端 Widget 刷新
 	SyncToGameState();
 	if (BlasterGameState) BlasterGameState->BroadcastRoundInfo();
 
 	UE_LOG(LogTemp, Log, TEXT("[Economy] HalftimeSwap executed | Score: TeamA=%d TeamB=%d | All Money=$%d"),
-		TeamARoundWins, TeamBRoundWins, EconomyConfig->StartingMoney);
+		BlasterGameState->TeamARoundWins, BlasterGameState->TeamBRoundWins, Config->StartingMoney);
 }

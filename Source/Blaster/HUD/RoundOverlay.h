@@ -37,11 +37,11 @@ private:
 	UFUNCTION()
 	void RefreshAliveCount(int32 AttackerAlive, int32 DefenderAlive);
 	UFUNCTION()
-	void RefreshRoundInfo(int32 RoundNumber, int32 AttackerWins, int32 DefenderWins);
+	void RefreshRoundInfo(int32 RoundNumber, int32 TeamAWins, int32 TeamBWins);
 	UFUNCTION()
-	void RefreshRoundResult(ETeamID Winner, int32 AttackerWins, int32 DefenderWins);
+	void RefreshRoundResult(ETeamID Winner, int32 TeamAWins, int32 TeamBWins);
 	UFUNCTION()
-	void RefreshMatchResult(ETeamID Winner, int32 AttackerWins, int32 DefenderWins);
+	void RefreshMatchResult(ETeamID Winner, int32 TeamAWins, int32 TeamBWins);
 
 	// 从本地 PlayerState 读取阵营标识更新 TeamLabel（与 Announcement::RefreshRoundInfo 同模式）
 	// GameState 委托携带的是全局数据，阵营归属是每玩家数据，需从 PlayerState 直接读取

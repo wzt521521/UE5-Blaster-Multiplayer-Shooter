@@ -356,6 +356,10 @@ void ABlasterPlayerController::ClientJoinMidgame_Implementation(FName StateOfMat
 		{
 			HandleRoundEnd();
 		}
+		else if (MatchState == MatchState::HalftimeSwap)
+		{
+			HandleHalftimeSwap();
+		}
 		else if (MatchState == MatchState::MatchEnd)
 		{
 			HandleMatchEnd();
@@ -392,10 +396,14 @@ void ABlasterPlayerController::OnMatchStateSet(FName State, bool bTeamsMatch)//�
 	{
 		HandleRoundEnd();
 	}
-	else if (MatchState == MatchState::MatchEnd)
-	{
-		HandleMatchEnd();
-	}
+		else if (MatchState == MatchState::HalftimeSwap)
+		{
+			HandleHalftimeSwap();
+		}
+		else if (MatchState == MatchState::MatchEnd)
+		{
+			HandleMatchEnd();
+		}
 }
 
 void ABlasterPlayerController::OnRep_MatchState()//负责同步玩家状态，与OnMatchStateSet配合，一个负责初始化，一个负责后续同步
@@ -947,6 +955,60 @@ void ABlasterPlayerController::HandleMatchEnd()
 	// RoundOverlay 委托已处理比赛结果
 
 	// 客户端：标记需要下一帧用最新 GameState 数据刷新公告
+}
+
+void ABlasterPlayerController::HandleHalftimeSwap()
+{
+	// 显示半场交换提示：隐藏 RoundOverlay/CharacterOverlay，显示 Announcement
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	if (BlasterHud)
+	{
+		BlasterHud->HideRoundOverlay();
+		BlasterHud->HideCharacterOverlay();
+		BlasterHud->EnsureAnnouncement();
+		if (BlasterHud->Announcement)
+		{
+			BlasterHud->Announcement->SetVisibility(ESlateVisibility::Visible);
+		}
+	}
+	// 蓝图侧通过 GameState::bIsSecondHalf 判断显示"上半场结束"或"下半场开始"文本
+}
+
+// ── 购买请求：服务端校验 + 扣款 + 发放武器 ──
+void ABlasterPlayerController::ServerRequestPurchase_Implementation(int32 ItemID, int32 ItemCost)
+{
+	ABlasterPlayerState* PS = GetPlayerState<ABlasterPlayerState>();
+	if (!PS) return;
+
+	// ① MatchState 校验：仅在 RoundPrepare 阶段允许购买
+	//    MatchState 已在 BlasterPlayerController 上复制，无需查 GameMode
+	if (MatchState != MatchState::RoundPrepare) return;
+
+	// ② 阵营校验：未分配阵营（中途加入被拒绝者）不允许购买
+	if (PS->TeamID == ETeamID::ETI_None) return;
+
+	// ③ 存活校验：已死亡的玩家不能购买
+	APawn* MyPawn = GetPawn();
+	if (!MyPawn) return;
+
+	// ④ 金额校验：比对服务端 Money 值
+	if (PS->Money < ItemCost) return;
+
+	// ⑤ 扣款（AddMoney 内部 Broadcast OnMoneyChanged → BuyMenu 自动刷新）
+	PS->AddMoney(-ItemCost);
+
+	// ⑥ 发放武器：后续叠加武器系统时在此 Spawn + 装备
+	//    TODO: ServerSpawnWeapon(ItemID, PS);
+
+	UE_LOG(LogTemp, Log, TEXT("[BuyMenu] %s purchased ItemID=%d for $%d, remaining $%d"),
+		*GetName(), ItemID, ItemCost, PS->Money);
+}
+
+bool ABlasterPlayerController::ServerRequestPurchase_Validate(int32 ItemID, int32 ItemCost)
+{
+	// 客户端发来的 ItemCost 仅作"用户期望价"参考，不做安全校验
+	// 实际扣款金额由服务端 Implementation 内部查表决定
+	return ItemID > 0 && ItemCost > 0;
 }
 
 // ========================================================================

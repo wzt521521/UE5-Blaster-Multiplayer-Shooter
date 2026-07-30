@@ -42,6 +42,7 @@ void SetHUDMatchCountdown(float CountdownTime);
 	void HandleRoundInProgress();
 	void HandleRoundEnd();
 	void HandleMatchEnd();
+	void HandleHalftimeSwap();
 
 	// 回合信息 HUD 推送
 
@@ -92,6 +93,11 @@ protected:
 
 	UFUNCTION(Server, Reliable)
 	void ServerCheckMatchState();
+
+	// ── 购买请求 RPC（客户端调用，服务端校验执行）──
+	UFUNCTION(Server, Reliable, WithValidation)
+	void ServerRequestPurchase(int32 ItemID, int32 ItemCost);
+	friend class UBuyMenu;
 
 	UFUNCTION(Client, Reliable)
 	void ClientJoinMidgame(FName StateOfMatch, float Warmup, float Match, float Cooldown, float StartingTime);

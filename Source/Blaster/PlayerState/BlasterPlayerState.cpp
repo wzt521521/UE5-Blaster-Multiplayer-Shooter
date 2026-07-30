@@ -5,6 +5,7 @@
 #include "Blaster/Character/BlasterCharacter.h"
 #include "Blaster/PlayerController/BlasterPlayerController.h"
 #include "Blaster/GameState/BlasterGameState.h"
+#include "Blaster/Economy/EconomyConfig.h"
 #include "Net/UnrealNetwork.h"
 
 void ABlasterPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -95,12 +96,17 @@ void ABlasterPlayerState::OnRep_TeamID()
 void ABlasterPlayerState::AddMoney(int32 Amount)
 {
     // ── 加钱逻辑（服务端权威）──
-    // Phase 3 DistributeRoundEconomy 和 Phase 6 BuyMenu 均调用此函数
     const int32 OldMoney = Money;
     Money += Amount;
 
-    // 上限裁剪：Phase 5 从 GameState->EconomyConfig->MaxMoney 读取后启用
-    // 当前 Phase 2-4 中 MaxMoney=-1（无上限），裁剪暂不生效
+    // 上限裁剪（Phase 5 启用：EconomyConfig 已在 GameState 上可用）
+    if (const ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>())
+    {
+        if (GS->EconomyConfig && GS->EconomyConfig->MaxMoney >= 0)
+        {
+            Money = FMath::Min(Money, GS->EconomyConfig->MaxMoney);
+        }
+    }
 
     // 广播 Money 变化委托：驱动 BuyMenu/HUD 刷新
     OnMoneyChanged.Broadcast(Money, Amount);

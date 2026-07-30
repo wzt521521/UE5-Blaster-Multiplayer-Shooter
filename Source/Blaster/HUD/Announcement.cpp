@@ -66,15 +66,15 @@ void UAnnouncement::TryBindAndRefresh()
 
 	// 初始刷新：读取当前 GameState 数据填充控件
 	// ETI_None 守卫在 RefreshRoundResult / RefreshMatchResult 内部处理
-	RefreshRoundInfo(GS->CurrentRoundNumber, GS->AttackerWins, GS->DefenderWins);
-	RefreshRoundResult(GS->LastRoundWinner, GS->AttackerWins, GS->DefenderWins);
-	RefreshMatchResult(GS->LastMatchWinner, GS->AttackerWins, GS->DefenderWins);
+	RefreshRoundInfo(GS->CurrentRoundNumber, GS->TeamARoundWins, GS->TeamBRoundWins);
+	RefreshRoundResult(GS->LastRoundWinner, GS->TeamARoundWins, GS->TeamBRoundWins);
+	RefreshMatchResult(GS->LastMatchWinner, GS->TeamARoundWins, GS->TeamBRoundWins);
 }
 
 // ------------------------------------------------------------
 // RefreshRoundInfo：回合准备阶段 → "第X回合" + "你是攻击者/保卫者"
 // ------------------------------------------------------------
-void UAnnouncement::RefreshRoundInfo(int32 RoundNumber, int32 AttackerWins, int32 DefenderWins)
+void UAnnouncement::RefreshRoundInfo(int32 RoundNumber, int32 TeamAWins, int32 TeamBWins)
 {
 	// RoundNumber ≤ 0 说明 GameState 数据尚未同步（初始默认值），
 	// 此时不更新 AnnouncementText，避免显示"第0回合"——等委托推送真实值
@@ -119,7 +119,7 @@ void UAnnouncement::RefreshRoundInfo(int32 RoundNumber, int32 AttackerWins, int3
 // ------------------------------------------------------------
 // RefreshRoundResult：回合结束 → "X赢得本回合!" + 比分
 // ------------------------------------------------------------
-void UAnnouncement::RefreshRoundResult(ETeamID Winner, int32 AttackerWins, int32 DefenderWins)
+void UAnnouncement::RefreshRoundResult(ETeamID Winner, int32 TeamAWins, int32 TeamBWins)
 {
 	// ETI_None 守卫：尚未有任何回合结束时跳过，避免 else 分支误显示"保卫者赢得本回合!"
 	if (Winner == ETeamID::ETI_None) return;
@@ -133,14 +133,14 @@ void UAnnouncement::RefreshRoundResult(ETeamID Winner, int32 AttackerWins, int32
 	if (InfoText)
 	{
 		InfoText->SetText(
-			FText::FromString(FString::Printf(TEXT("攻击者 %d - %d 保卫者"), AttackerWins, DefenderWins)));
+			FText::FromString(FString::Printf(TEXT("攻击者 %d - %d 保卫者"), TeamAWins, TeamBWins)));
 	}
 }
 
 // ------------------------------------------------------------
 // RefreshMatchResult：比赛结束 → "X赢得比赛!" + 最终比分
 // ------------------------------------------------------------
-void UAnnouncement::RefreshMatchResult(ETeamID Winner, int32 AttackerWins, int32 DefenderWins)
+void UAnnouncement::RefreshMatchResult(ETeamID Winner, int32 TeamAWins, int32 TeamBWins)
 {
 	// ETI_None 守卫：尚未有比赛结束时跳过，避免 else 分支误显示"保卫者赢得比赛!"
 	if (Winner == ETeamID::ETI_None) return;
@@ -154,6 +154,6 @@ void UAnnouncement::RefreshMatchResult(ETeamID Winner, int32 AttackerWins, int32
 	if (InfoText)
 	{
 		InfoText->SetText(
-			FText::FromString(FString::Printf(TEXT("最终比分 %d - %d\n返回大厅..."), AttackerWins, DefenderWins)));
+			FText::FromString(FString::Printf(TEXT("最终比分 TeamA %d - %d TeamB\n返回大厅..."), TeamAWins, TeamBWins)));
 	}
 }

@@ -19,9 +19,9 @@ void URoundOverlay::NativeConstruct()
 		// 如果 GameState 数据在 NativeConstruct 之前就已到达（客户端复制早于 Widget 创建），
 		// 需要主动读取一次当前值来初始化所有控件。
 		RefreshAliveCount(GS->AttackerAliveCount, GS->DefenderAliveCount);
-		RefreshRoundInfo(GS->CurrentRoundNumber, GS->AttackerWins, GS->DefenderWins);
-		RefreshRoundResult(GS->LastRoundWinner, GS->AttackerWins, GS->DefenderWins);
-		RefreshMatchResult(GS->LastMatchWinner, GS->AttackerWins, GS->DefenderWins);
+		RefreshRoundInfo(GS->CurrentRoundNumber, GS->TeamARoundWins, GS->TeamBRoundWins);
+		RefreshRoundResult(GS->LastRoundWinner, GS->TeamARoundWins, GS->TeamBRoundWins);
+		RefreshMatchResult(GS->LastMatchWinner, GS->TeamARoundWins, GS->TeamBRoundWins);
 		// TeamLabel 从本地 PlayerState 读取，不在 GameState 委托参数中，需独立刷新
 		RefreshTeamLabel();
 	}
@@ -47,7 +47,7 @@ void URoundOverlay::RefreshAliveCount(int32 AttackerAlive, int32 DefenderAlive)
 	if (DefenderAliveText)  DefenderAliveText->SetText(FText::AsNumber(DefenderAlive));
 }
 
-void URoundOverlay::RefreshRoundInfo(int32 RoundNumber, int32 AttackerWins, int32 DefenderWins)
+void URoundOverlay::RefreshRoundInfo(int32 RoundNumber, int32 TeamAWins, int32 TeamBWins)
 {
 	// RoundNumber ≤ 0 说明 GameState 数据尚未同步（初始默认值），
 	// 不更新 RoundNumberText，避免显示"第0回合"——等委托推送真实值。
@@ -59,12 +59,12 @@ void URoundOverlay::RefreshRoundInfo(int32 RoundNumber, int32 AttackerWins, int3
 			FText::FromString(FString::Printf(TEXT("第%d回合"), RoundNumber)));  // 第X回合
 	}
 	if (ScoreText) ScoreText->SetText(
-		FText::FromString(FString::Printf(TEXT("攻击者 %d - %d 保卫者"), AttackerWins, DefenderWins)));  // 攻击者 X - Y 保卫者
+		FText::FromString(FString::Printf(TEXT("攻击者 %d - %d 保卫者"), TeamAWins, TeamBWins)));
 	// 同时刷新阵营标签：回合准备阶段 TeamID 已分配，确保 TeamLabel 与最新阵营同步
 	RefreshTeamLabel();
 }
 
-void URoundOverlay::RefreshRoundResult(ETeamID Winner, int32 AttackerWins, int32 DefenderWins)
+void URoundOverlay::RefreshRoundResult(ETeamID Winner, int32 TeamAWins, int32 TeamBWins)
 {
 	// ETI_None 守卫：尚未有任何回合结束时跳过，避免 else 分支误显示"保卫者胜"
 	if (Winner == ETeamID::ETI_None) return;
@@ -77,10 +77,10 @@ void URoundOverlay::RefreshRoundResult(ETeamID Winner, int32 AttackerWins, int32
 		RoundNumberText->SetText(FText::FromString(WinnerStr));
 	}
 	// 同时刷新比分
-	RefreshRoundInfo(0, AttackerWins, DefenderWins);
+	RefreshRoundInfo(0, TeamAWins, TeamBWins);
 }
 
-void URoundOverlay::RefreshMatchResult(ETeamID Winner, int32 AttackerWins, int32 DefenderWins)
+void URoundOverlay::RefreshMatchResult(ETeamID Winner, int32 TeamAWins, int32 TeamBWins)
 {
 	// ETI_None 守卫：尚未有任何比赛结束时跳过，避免 else 分支误显示"保卫者赢得比赛!"
 	if (Winner == ETeamID::ETI_None) return;
@@ -93,7 +93,7 @@ void URoundOverlay::RefreshMatchResult(ETeamID Winner, int32 AttackerWins, int32
 		RoundNumberText->SetText(FText::FromString(WinnerStr));
 	}
 	// 最终比分
-	RefreshRoundInfo(0, AttackerWins, DefenderWins);
+	RefreshRoundInfo(0, TeamAWins, TeamBWins);
 }
 
 // ------------------------------------------------------------

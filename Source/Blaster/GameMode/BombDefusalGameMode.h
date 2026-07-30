@@ -36,9 +36,17 @@ public:
 	UFUNCTION(BlueprintPure)
 	int32 GetRoundNumber() const { return RoundNumber; }
 	UFUNCTION(BlueprintPure)
-	int32 GetAttackerRoundWins() const { return AttackerRoundWins; }
+	int32 GetAttackerRoundWins() const
+	{
+		const ABlasterGameState* GS = GetGameState<ABlasterGameState>();
+		return GS ? GS->TeamARoundWins : 0;
+	}
 	UFUNCTION(BlueprintPure)
-	int32 GetDefenderRoundWins() const { return DefenderRoundWins; }
+	int32 GetDefenderRoundWins() const
+	{
+		const ABlasterGameState* GS = GetGameState<ABlasterGameState>();
+		return GS ? GS->TeamBRoundWins : 0;
+	}
 	UFUNCTION(BlueprintPure)
 	int32 GetAttackerAliveCount() const
 	{
@@ -105,8 +113,6 @@ protected:
 private:
 	// ---- 回合生命周期 ----
 	float CountdownTime = 0.f;
-	int32 AttackerRoundWins = 0;
-	int32 DefenderRoundWins = 0;
 	int32 RoundNumber = 0;
 
 	// GameState 缓存：BeginPlay 时赋值，后续所有 AliveCount 读写直接走 GameState
@@ -116,25 +122,13 @@ private:
 	// 标记阵营是否已分配（一场比赛只分配一次）
 	bool bTeamsAssigned = false;
 
-	// 是否已进入下半场（半场交换时设为 true，影响角色→逻辑队伍映射）
-	bool bIsSecondHalf = false;
-
 	// 上一回合胜者（HandleRoundEnd 显示用）
 	ETeamID LastRoundWinner = ETeamID::ETI_None;
 	// 比赛最终胜者（HandleMatchEnd 显示用）
 	ETeamID LastMatchWinner = ETeamID::ETI_None;
 
-	// ── 经济配置运行时指针（服务端，BeginPlay 中同步加载）──
-	UPROPERTY()
-	UEconomyConfig* EconomyConfig = nullptr;
-
-	// ── 回合经济状态（Phase 3-4 临时变量，Phase 5 迁移到 GameState）──
-	int32 TeamARoundWins = 0;      // 逻辑队 A 回合胜场
-	int32 TeamBRoundWins = 0;      // 逻辑队 B 回合胜场
-	int32 TeamALossStreak = 0;     // 逻辑队 A 连败计数
-	int32 TeamBLossStreak = 0;     // 逻辑队 B 连败计数
-	int32 TeamAWinStreak = 0;      // 逻辑队 A 连胜计数
-	int32 TeamBWinStreak = 0;      // 逻辑队 B 连胜计数
+	// ── 经济配置软引用（服务端，BeginPlay 中加载并写入 GameState）──
+	// 运行时指针已迁移到 GameState->EconomyConfig
 
 	void StartRoundPrepare();
 	void AssignTeamsOnce();             // 比赛开始一次性随机分配阵营

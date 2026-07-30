@@ -5,20 +5,22 @@
 #include "CoreMinimal.h"
 #include "GameFramework/GameState.h"
 #include "Blaster/BlasterTypes/TeamTypes.h"
+#include "Blaster/BlasterTypes/EconomyTypes.h"
 #include "BlasterGameState.generated.h"
 class ABlasterPlayerState;
+class UEconomyConfig;
 
 // 存活人数变化委托：GameMode 修改 AliveCount 后广播，Widget 绑定此委托自动刷新
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAliveCountChanged, int32, AttackerAlive, int32, DefenderAlive);
 
 // 回合信息变化委托：回合号或比分变化时广播
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnRoundInfoChanged, int32, RoundNumber, int32, AttackerWins, int32, DefenderWins);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnRoundInfoChanged, int32, RoundNumber, int32, TeamAWins, int32, TeamBWins);
 
 // 回合结果委托：EndRound 时广播
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnRoundResultChanged, ETeamID, Winner, int32, AttackerWins, int32, DefenderWins);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnRoundResultChanged, ETeamID, Winner, int32, TeamAWins, int32, TeamBWins);
 
 // 比赛结果委托：ConcludeMatch 时广播
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnMatchResultChanged, ETeamID, Winner, int32, AttackerWins, int32, DefenderWins);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnMatchResultChanged, ETeamID, Winner, int32, TeamAWins, int32, TeamBWins);
 
 
 UCLASS()
@@ -43,11 +45,41 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_CurrentRoundNumber)
 	int32 CurrentRoundNumber = 0;
 
-	// 攻击方/防守方回合胜场（ReplicatedUsing：客户端收到复制时广播 OnRoundInfoChanged）
-	UPROPERTY(ReplicatedUsing = OnRep_AttackerWins)
-	int32 AttackerWins = 0;
-	UPROPERTY(ReplicatedUsing = OnRep_DefenderWins)
-	int32 DefenderWins = 0;
+	// ── 逻辑队伍比分 + 经济状态（Phase 5 新增，替代旧 AttackerWins/DefenderWins）──
+
+	// 逻辑队 A/B 回合胜场
+	UPROPERTY(ReplicatedUsing = OnRep_TeamAWins)
+	int32 TeamARoundWins = 0;
+	UPROPERTY(ReplicatedUsing = OnRep_TeamBWins)
+	int32 TeamBRoundWins = 0;
+
+	// 连败计数（归属逻辑队，半场交换归零）
+	UPROPERTY(Replicated)
+	int32 TeamALossStreak = 0;
+	UPROPERTY(Replicated)
+	int32 TeamBLossStreak = 0;
+
+	// 连胜计数
+	UPROPERTY(Replicated)
+	int32 TeamAWinStreak = 0;
+	UPROPERTY(Replicated)
+	int32 TeamBWinStreak = 0;
+
+	// 半场状态
+	UPROPERTY(Replicated)
+	bool bIsSecondHalf = false;
+
+	// 半场交换回合数（BeginPlay 时写入一次）
+	UPROPERTY(Replicated)
+	int32 HalftimeRound = 0;
+
+	// 经济配置指针（BeginPlay 时写入一次，客户端通过此指针 AddMoney 裁剪）
+	UPROPERTY(Replicated)
+	UEconomyConfig* EconomyConfig = nullptr;
+
+	// 比赛最终胜者（ELogicalTeam 维度）
+	UPROPERTY(ReplicatedUsing = OnRep_LastMatchWinnerLT)
+	ELogicalTeam LastMatchWinnerLT = ELogicalTeam::ELT_None;
 
 	// 上一回合胜者（ReplicatedUsing：客户端收到复制时广播 OnRoundResultChanged）
 	UPROPERTY(ReplicatedUsing = OnRep_LastRoundWinner)
@@ -81,12 +113,23 @@ public:
 	UPROPERTY(BlueprintAssignable)
 	FOnMatchResultChanged OnMatchResultChanged;
 
+	// ── 经济辅助方法（Phase 5，GameMode 通过 GameState 读写）──
+	int32 GetLossStreakForTeam(ELogicalTeam T) const;
+	int32 GetWinStreakForTeam(ELogicalTeam T) const;
+	void IncrementLossStreak(ELogicalTeam T);
+	void ResetLossStreak(ELogicalTeam T);
+	void IncrementWinStreak(ELogicalTeam T);
+	void ResetWinStreak(ELogicalTeam T);
+	void ResetAllStreaks();
+	void AddRoundWin(ELogicalTeam T);
+	int32 GetRoundWinsForTeam(ELogicalTeam T) const;
+
 	// 广播函数：GameMode 在修改数据后手动调用（服务器端）
 	//         OnRep 里自动调用（客户端收到复制时）
 	void BroadcastAliveCount() { OnAliveCountChanged.Broadcast(AttackerAliveCount, DefenderAliveCount); }
-	void BroadcastRoundInfo()  { OnRoundInfoChanged.Broadcast(CurrentRoundNumber, AttackerWins, DefenderWins); }
-	void BroadcastRoundResult(){ OnRoundResultChanged.Broadcast(LastRoundWinner, AttackerWins, DefenderWins); }
-	void BroadcastMatchResult(){ OnMatchResultChanged.Broadcast(LastMatchWinner, AttackerWins, DefenderWins); }
+	void BroadcastRoundInfo()  { OnRoundInfoChanged.Broadcast(CurrentRoundNumber, TeamARoundWins, TeamBRoundWins); }
+	void BroadcastRoundResult(){ OnRoundResultChanged.Broadcast(LastRoundWinner, TeamARoundWins, TeamBRoundWins); }
+	void BroadcastMatchResult(){ OnMatchResultChanged.Broadcast(LastMatchWinner, TeamARoundWins, TeamBRoundWins); }
 
 private:
 	// OnRep 回调：客户端收到 AliveCount 复制时广播委托
@@ -94,15 +137,16 @@ private:
 	void OnRep_AliveCount();
 
 	// OnRep 回调：客户端收到回合信息复制时广播对应委托
-	// 每个属性的 OnRep 广播其所属的委托，确保客户端 Widget 与服务端同步更新
 	UFUNCTION()
 	void OnRep_CurrentRoundNumber();
-	UFUNCTION()
-	void OnRep_AttackerWins();
-	UFUNCTION()
-	void OnRep_DefenderWins();
 	UFUNCTION()
 	void OnRep_LastRoundWinner();
 	UFUNCTION()
 	void OnRep_LastMatchWinner();
+	UFUNCTION()
+	void OnRep_TeamAWins();
+	UFUNCTION()
+	void OnRep_TeamBWins();
+	UFUNCTION()
+	void OnRep_LastMatchWinnerLT();
 };

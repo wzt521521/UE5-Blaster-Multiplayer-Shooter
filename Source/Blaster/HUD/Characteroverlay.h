@@ -18,6 +18,8 @@ class BLASTER_API UCharacteroverlay : public UUserWidget
 {
 	GENERATED_BODY()
 public:
+	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
 	UPROPERTY(meta = (BindWidget))
 	UProgressBar* HealthBar;
 
@@ -55,4 +57,12 @@ public:
 	// 客户端延迟显示文本（ms），每帧 Tick 由 PlayerController 更新
 	UPROPERTY(meta = (BindWidget))
 	UTextBlock* PingText;
+
+	// 当前持有金额（绑定 PlayerState::OnMoneyChanged 自动刷新）
+	UPROPERTY(meta = (BindWidget))
+	UTextBlock* MoneyText;
+
+private:
+	UFUNCTION()
+	void OnMoneyChangedHandler(int32 NewMoney, int32 Delta);
 };

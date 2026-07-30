@@ -11,8 +11,16 @@ void ABlasterGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &Ou
     DOREPLIFETIME(ABlasterGameState, TopScoringPlayers);
     DOREPLIFETIME(ABlasterGameState, RemainingCountdown);
     DOREPLIFETIME(ABlasterGameState, CurrentRoundNumber);
-    DOREPLIFETIME(ABlasterGameState, AttackerWins);
-    DOREPLIFETIME(ABlasterGameState, DefenderWins);
+    DOREPLIFETIME(ABlasterGameState, TeamARoundWins);
+    DOREPLIFETIME(ABlasterGameState, TeamBRoundWins);
+    DOREPLIFETIME(ABlasterGameState, TeamALossStreak);
+    DOREPLIFETIME(ABlasterGameState, TeamBLossStreak);
+    DOREPLIFETIME(ABlasterGameState, TeamAWinStreak);
+    DOREPLIFETIME(ABlasterGameState, TeamBWinStreak);
+    DOREPLIFETIME(ABlasterGameState, bIsSecondHalf);
+    DOREPLIFETIME(ABlasterGameState, HalftimeRound);
+    DOREPLIFETIME(ABlasterGameState, EconomyConfig);
+    DOREPLIFETIME(ABlasterGameState, LastMatchWinnerLT);
     DOREPLIFETIME(ABlasterGameState, LastRoundWinner);
     DOREPLIFETIME(ABlasterGameState, LastMatchWinner);
     DOREPLIFETIME(ABlasterGameState, RoundPrepareDuration);
@@ -42,22 +50,6 @@ void ABlasterGameState::OnRep_CurrentRoundNumber()
 {
 	BroadcastRoundInfo();  // 回合号变化 → 广播回合信息
 }
-void ABlasterGameState::OnRep_AttackerWins()
-{
-	// ① 广播回合信息（比分更新属于回合信息变化）
-	BroadcastRoundInfo();
-	// ② 同时广播回合结果：比分变化只发生在 EndRound，
-	//    此时 LastRoundWinner 已在同一批次中更新为正确值。
-	//    当同队连胜时 OnRep_LastRoundWinner 不会触发（值未变），
-	//    此处兜底确保客户端 Widget 能收到 RefreshRoundResult
-	BroadcastRoundResult();
-}
-void ABlasterGameState::OnRep_DefenderWins()
-{
-	BroadcastRoundInfo();
-	// ② 同上：兜底广播回合结果，解决同队连胜时 OnRep_LastRoundWinner 不触发的问题
-	BroadcastRoundResult();
-}
 void ABlasterGameState::OnRep_LastRoundWinner()
 {
 	BroadcastRoundResult(); // 回合胜者变化 → 广播回合结果
@@ -65,6 +57,61 @@ void ABlasterGameState::OnRep_LastRoundWinner()
 void ABlasterGameState::OnRep_LastMatchWinner()
 {
 	BroadcastMatchResult(); // 比赛胜者变化 → 广播比赛结果
+}
+
+// ── Phase 5 新增 OnRep ──
+void ABlasterGameState::OnRep_TeamAWins()
+{
+	BroadcastRoundInfo();
+	BroadcastRoundResult(); // 兜底：同队连胜时 OnRep_LastRoundWinner 不触发
+}
+void ABlasterGameState::OnRep_TeamBWins()
+{
+	BroadcastRoundInfo();
+	BroadcastRoundResult();
+}
+void ABlasterGameState::OnRep_LastMatchWinnerLT()
+{
+	BroadcastMatchResult();
+}
+
+// ── 经济辅助方法 ──
+int32 ABlasterGameState::GetLossStreakForTeam(ELogicalTeam T) const
+{
+	return (T == ELogicalTeam::ELT_TeamA) ? TeamALossStreak : TeamBLossStreak;
+}
+int32 ABlasterGameState::GetWinStreakForTeam(ELogicalTeam T) const
+{
+	return (T == ELogicalTeam::ELT_TeamA) ? TeamAWinStreak : TeamBWinStreak;
+}
+void ABlasterGameState::IncrementLossStreak(ELogicalTeam T)
+{
+	if (T == ELogicalTeam::ELT_TeamA) TeamALossStreak++; else TeamBLossStreak++;
+}
+void ABlasterGameState::ResetLossStreak(ELogicalTeam T)
+{
+	if (T == ELogicalTeam::ELT_TeamA) TeamALossStreak = 0; else TeamBLossStreak = 0;
+}
+void ABlasterGameState::IncrementWinStreak(ELogicalTeam T)
+{
+	if (T == ELogicalTeam::ELT_TeamA) TeamAWinStreak++; else TeamBWinStreak++;
+}
+void ABlasterGameState::ResetWinStreak(ELogicalTeam T)
+{
+	if (T == ELogicalTeam::ELT_TeamA) TeamAWinStreak = 0; else TeamBWinStreak = 0;
+}
+void ABlasterGameState::ResetAllStreaks()
+{
+	TeamALossStreak = TeamBLossStreak = 0;
+	TeamAWinStreak = TeamBWinStreak = 0;
+}
+void ABlasterGameState::AddRoundWin(ELogicalTeam T)
+{
+	if (T == ELogicalTeam::ELT_TeamA) TeamARoundWins++; else TeamBRoundWins++;
+}
+int32 ABlasterGameState::GetRoundWinsForTeam(ELogicalTeam T) const
+{
+	return (T == ELogicalTeam::ELT_TeamA) ? TeamARoundWins : TeamBRoundWins;
 }
 
 void ABlasterGameState::UpdateTopScore(ABlasterPlayerState *ScoringPlayer)

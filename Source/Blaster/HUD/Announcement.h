@@ -27,11 +27,11 @@ public:
 private:
 	// 委托回调：GameState 数据变化时自动刷新公告内容
 	UFUNCTION()
-	void RefreshRoundInfo(int32 RoundNumber, int32 AttackerWins, int32 DefenderWins);
+	void RefreshRoundInfo(int32 RoundNumber, int32 TeamAWins, int32 TeamBWins);
 	UFUNCTION()
-	void RefreshRoundResult(ETeamID Winner, int32 AttackerWins, int32 DefenderWins);
+	void RefreshRoundResult(ETeamID Winner, int32 TeamAWins, int32 TeamBWins);
 	UFUNCTION()
-	void RefreshMatchResult(ETeamID Winner, int32 AttackerWins, int32 DefenderWins);
+	void RefreshMatchResult(ETeamID Winner, int32 TeamAWins, int32 TeamBWins);
 
 	// 延迟绑定委托：NativeConstruct 时 GameState 可能尚未复制到客户端，
 	// 若 GS 为空则下一帧重试，确保委托一定被绑定
