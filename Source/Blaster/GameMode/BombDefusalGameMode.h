@@ -66,7 +66,7 @@ protected:
 
 	// 先赢 N 局获胜
 	UPROPERTY(EditDefaultsOnly, Category = "Round Settings")
-	int32 RoundsToWin = 7;
+	int32 RoundsToWin = 13;
 
 	// 回合准备倒计时（秒）
 	UPROPERTY(EditDefaultsOnly, Category = "Round Settings")
@@ -88,6 +88,15 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Round Settings")
 	FString LobbyMapPath = TEXT("/Game/Maps/Lobby");
 
+	// ── 半场交换配置 ──
+	// 半场交换回合数（MR12: 第 12 局结束后交换）
+	UPROPERTY(EditDefaultsOnly, Category = "Round Settings")
+	int32 HalftimeRound = 12;
+
+	// 半场交换展示时长（秒）
+	UPROPERTY(EditDefaultsOnly, Category = "Round Settings")
+	float HalftimeSwapTime = 5.f;
+
 	// ── 经济系统配置 ──
 	// 指向 DA_EconomyConfig DataAsset，BeginPlay 时加载
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")
@@ -106,6 +115,9 @@ private:
 
 	// 标记阵营是否已分配（一场比赛只分配一次）
 	bool bTeamsAssigned = false;
+
+	// 是否已进入下半场（半场交换时设为 true，影响角色→逻辑队伍映射）
+	bool bIsSecondHalf = false;
 
 	// 上一回合胜者（HandleRoundEnd 显示用）
 	ETeamID LastRoundWinner = ETeamID::ETI_None;
@@ -149,4 +161,5 @@ private:
 	ELogicalTeam GetLogicalTeamFromRole(ETeamID TeamRole) const;       // 角色 → 逻辑队伍映射
 	TArray<ABlasterPlayerState*> GetPlayersInLogicalTeam(ELogicalTeam LT) const; // 按逻辑队筛选玩家
 	void DistributeRoundEconomy(ELogicalTeam WinningLT);           // 回合经济发放（统一发钱入口）
+	void ExecuteHalftimeSwap();                                     // 半场交换执行（6 步顺序）
 };

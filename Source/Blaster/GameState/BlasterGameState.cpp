@@ -44,11 +44,19 @@ void ABlasterGameState::OnRep_CurrentRoundNumber()
 }
 void ABlasterGameState::OnRep_AttackerWins()
 {
-	BroadcastRoundInfo();  // 胜场变化属于回合信息更新（比分），广播回合信息
+	// ① 广播回合信息（比分更新属于回合信息变化）
+	BroadcastRoundInfo();
+	// ② 同时广播回合结果：比分变化只发生在 EndRound，
+	//    此时 LastRoundWinner 已在同一批次中更新为正确值。
+	//    当同队连胜时 OnRep_LastRoundWinner 不会触发（值未变），
+	//    此处兜底确保客户端 Widget 能收到 RefreshRoundResult
+	BroadcastRoundResult();
 }
 void ABlasterGameState::OnRep_DefenderWins()
 {
 	BroadcastRoundInfo();
+	// ② 同上：兜底广播回合结果，解决同队连胜时 OnRep_LastRoundWinner 不触发的问题
+	BroadcastRoundResult();
 }
 void ABlasterGameState::OnRep_LastRoundWinner()
 {
