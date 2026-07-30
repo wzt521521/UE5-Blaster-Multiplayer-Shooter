@@ -66,6 +66,9 @@ void URoundOverlay::RefreshRoundInfo(int32 RoundNumber, int32 AttackerWins, int3
 
 void URoundOverlay::RefreshRoundResult(ETeamID Winner, int32 AttackerWins, int32 DefenderWins)
 {
+	// ETI_None 守卫：尚未有任何回合结束时跳过，避免 else 分支误显示"保卫者胜"
+	if (Winner == ETeamID::ETI_None) return;
+
 	// 回合结束时：胜者显示在 RoundNumberText，比分刷新
 	if (RoundNumberText)
 	{
@@ -79,6 +82,9 @@ void URoundOverlay::RefreshRoundResult(ETeamID Winner, int32 AttackerWins, int32
 
 void URoundOverlay::RefreshMatchResult(ETeamID Winner, int32 AttackerWins, int32 DefenderWins)
 {
+	// ETI_None 守卫：尚未有任何比赛结束时跳过，避免 else 分支误显示"保卫者赢得比赛!"
+	if (Winner == ETeamID::ETI_None) return;
+
 	if (RoundNumberText)
 	{
 		const FString WinnerStr = (Winner == ETeamID::ETI_Attacker)
