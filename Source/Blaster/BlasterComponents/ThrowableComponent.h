@@ -52,6 +52,17 @@ public:
 	FORCEINLINE EThrowableType GetSelectedType() const { return SelectedType; }
 	FORCEINLINE bool CanFire() const { return IsIdle(); }
 
+	// ===== 库存管理（购买系统 + 回合重置调用）=====
+
+	// 是否还能增加指定类型（未达上限）
+	bool CanAddThrowable(EThrowableType Type, int32 MaxCount) const;
+
+	// 增加指定类型库存（服务端权威）
+	void AddThrowable(EThrowableType Type, int32 Amount);
+
+	// 清零所有投掷物（半场交换 / 死亡重置）
+	void ClearAllThrowables();
+
 	// HUD 倒计时查询（-1 = 未烹饪，0~1 = 进度百分比）
 	FORCEINLINE float GetCookingProgress() const
 	{

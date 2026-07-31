@@ -6,9 +6,12 @@
 #include "GameFramework/GameState.h"
 #include "Blaster/BlasterTypes/TeamTypes.h"
 #include "Blaster/BlasterTypes/EconomyTypes.h"
+#include "Engine/DataTable.h"
 #include "BlasterGameState.generated.h"
 class ABlasterPlayerState;
 class UEconomyConfig;
+struct FShopItemRow;
+class UDataTable;
 
 // 存活人数变化委托：GameMode 修改 AliveCount 后广播，Widget 绑定此委托自动刷新
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAliveCountChanged, int32, AttackerAlive, int32, DefenderAlive);
@@ -130,6 +133,21 @@ public:
 	void BroadcastRoundInfo()  { OnRoundInfoChanged.Broadcast(CurrentRoundNumber, TeamARoundWins, TeamBRoundWins); }
 	void BroadcastRoundResult(){ OnRoundResultChanged.Broadcast(LastRoundWinner, TeamARoundWins, TeamBRoundWins); }
 	void BroadcastMatchResult(){ OnMatchResultChanged.Broadcast(LastMatchWinner, TeamARoundWins, TeamBRoundWins); }
+
+	// ── 商店物品 DataTable（购买系统数据源）──
+
+	// GameMode 在 BeginPlay 时加载，服务端查表获取 Price/Category/Class
+	// 客户端可直接读取（Listen Server 同进程），无需 Replicate
+	UPROPERTY(BlueprintReadOnly, Category = "Shop")
+	class UDataTable* ShopItemTable = nullptr;
+
+	// 通过 ItemID 遍历查找 DataTable 行，返回 nullptr 表示无效 ID
+	const FShopItemRow* FindShopItem(int32 ItemID) const;
+
+	// 供蓝图 BuyMenu 查询：按 ItemID 获取 Price（-1 表示无效 ID）
+	// 比直接读 DataTable 更简洁，BuyMenu 灰显逻辑只需调此函数
+	UFUNCTION(BlueprintCallable, Category = "Shop")
+	int32 GetShopItemPrice(int32 ItemID) const;
 
 private:
 	// OnRep 回调：客户端收到 AliveCount 复制时广播委托

@@ -11,6 +11,12 @@
 class ABlasterCharacter;
 class ABlasterPlayerController;
 class ABlasterPlayerState;
+class UDataTable;
+// 购买系统 — 前向声明（Step 6）
+struct FShopItemRow;
+enum class EWeaponType : uint8;
+enum class EThrowableType : uint8;
+enum class EBuffType : uint8;
 
 // 回合制阵营对抗 GameMode：歼灭胜利条件（全灭对手），后续叠加炸弹机制即为完整爆破模式
 // 继承 AGameMode（非 ABlasterGameMode），回合制状态机与 Deathmatch 完全独立
@@ -64,6 +70,25 @@ public:
 	UFUNCTION(BlueprintPure)
 	ETeamID GetLastMatchWinner() const { return LastMatchWinner; }
 
+	// ── 购买系统分发（Step 6）──
+
+	// 总入口：根据 DataTable 行的 Category 字段路由到具体处理器
+	void ProcessPurchase(class ABlasterPlayerController* PC, const FShopItemRow& ItemRow);
+
+	// 四个类别处理器
+	void SpawnAndEquipPurchasedWeapon(class ABlasterCharacter* Character, TSubclassOf<class AWeapon> WeaponClass);
+	void GrantAmmoToEquippedWeapon(class ABlasterCharacter* Character, EWeaponType AmmoWeaponType, int32 Amount);
+	void AddThrowableToInventory(class ABlasterCharacter* Character, EThrowableType ThrowableType);
+	void ApplyBuffToCharacter(class ABlasterCharacter* Character, EBuffType BuffType);
+
+	// ── 回合清理（Step 7）──
+
+	// 遍历世界中的 AWeapon，销毁所有 Dropped 状态的武器
+	void CleanupDroppedWeapons();
+
+	// 遍历所有存活玩家，清除 Buff
+	void ClearAllBuffsOnAllPlayers();
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -109,6 +134,11 @@ protected:
 	// 指向 DA_EconomyConfig DataAsset，BeginPlay 时加载
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")
 	TSoftObjectPtr<UEconomyConfig> EconomyConfigRef;
+
+	// ── 商店系统配置 ──
+	// 指向 DT_ShopItems DataTable，BeginPlay 时加载并写入 GameState
+	UPROPERTY(EditDefaultsOnly, Category = "Shop")
+	TSoftObjectPtr<UDataTable> ShopItemTableRef;
 
 private:
 	// ---- 回合生命周期 ----

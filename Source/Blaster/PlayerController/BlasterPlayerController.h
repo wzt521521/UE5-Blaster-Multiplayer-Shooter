@@ -94,9 +94,10 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerCheckMatchState();
 
-	// ── 购买请求 RPC（客户端调用，服务端校验执行）──
+	// 购买请求 RPC（客户端 -> 服务器）
+	// 客户端只传 ItemID，服务器从 DataTable 查表获取 Price/Category/Class
 	UFUNCTION(Server, Reliable, WithValidation)
-	void ServerRequestPurchase(int32 ItemID, int32 ItemCost);
+	void ServerRequestPurchase(int32 ItemID);
 	friend class UBuyMenu;
 
 	UFUNCTION(Client, Reliable)

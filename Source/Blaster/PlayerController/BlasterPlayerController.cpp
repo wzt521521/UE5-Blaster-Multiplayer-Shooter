@@ -21,6 +21,7 @@
 #include "Blaster/GameState/BlasterGameState.h"
 #include "Blaster/BlasterTypes/Announcement.h"
 #include "Kismet/GameplayStatics.h"
+#include "Blaster/BlasterTypes/ShopTypes.h"
 
 void ABlasterPlayerController::SetupInputComponent()
 {
@@ -505,8 +506,8 @@ void ABlasterPlayerController::OpenBuyMenuOnWarmup()
 
 void ABlasterPlayerController::ToggleBuyMenu()
 {
-	// 仅热身阶段允许开关购买菜单，比赛开始后 B 键无效果
-	if (MatchState != MatchState::WaitingToStart) return;
+	// 热身阶段和购买阶段允许开关购买菜单，比赛开始后 B 键无效果
+	if (MatchState != MatchState::WaitingToStart && MatchState != MatchState::RoundPrepare) return;
 
 	if (bBuyMenuOpen)
 	{
@@ -877,6 +878,12 @@ void ABlasterPlayerController::HandleRoundPrepare()
 
 void ABlasterPlayerController::HandleRoundInProgress()
 {
+	// 购买阶段结束，强制关闭购买菜单（防止玩家卡在菜单里进入战斗）
+	if (bBuyMenuOpen)
+	{
+		HideBuyMenu();
+	}
+
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
 	if (BlasterHud)
 	{
@@ -974,41 +981,55 @@ void ABlasterPlayerController::HandleHalftimeSwap()
 	// 蓝图侧通过 GameState::bIsSecondHalf 判断显示"上半场结束"或"下半场开始"文本
 }
 
-// ── 购买请求：服务端校验 + 扣款 + 发放武器 ──
-void ABlasterPlayerController::ServerRequestPurchase_Implementation(int32 ItemID, int32 ItemCost)
+// ── 购买请求 RPC 验证：仅检查 ItemID 格式 ──
+bool ABlasterPlayerController::ServerRequestPurchase_Validate(int32 ItemID)
+{
+	return ItemID > 0;  // 只校验基本格式，不校验是否存在（服务端 Implementation 做）
+}
+
+// ── 购买请求 RPC 实现：查表定价 + 扣款 + 分发 ──
+void ABlasterPlayerController::ServerRequestPurchase_Implementation(int32 ItemID)
 {
 	ABlasterPlayerState* PS = GetPlayerState<ABlasterPlayerState>();
 	if (!PS) return;
 
-	// ① MatchState 校验：仅在 RoundPrepare 阶段允许购买
-	//    MatchState 已在 BlasterPlayerController 上复制，无需查 GameMode
+	// [1] MatchState 校验：仅在 RoundPrepare 阶段允许购买
 	if (MatchState != MatchState::RoundPrepare) return;
 
-	// ② 阵营校验：未分配阵营（中途加入被拒绝者）不允许购买
+	// [2] 阵营校验：未分配阵营拒绝
 	if (PS->TeamID == ETeamID::ETI_None) return;
 
-	// ③ 存活校验：已死亡的玩家不能购买
+	// [3] 存活校验：已死亡玩家不能购买
 	APawn* MyPawn = GetPawn();
 	if (!MyPawn) return;
 
-	// ④ 金额校验：比对服务端 Money 值
-	if (PS->Money < ItemCost) return;
+	// [4] 查表：从 GameState 获取 DataTable，按 ItemID 查找物品行
+	ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>();
+	if (!GS) return;
 
-	// ⑤ 扣款（AddMoney 内部 Broadcast OnMoneyChanged → BuyMenu 自动刷新）
-	PS->AddMoney(-ItemCost);
+	const FShopItemRow* ItemRow = GS->FindShopItem(ItemID);
+	if (!ItemRow)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BuyMenu] Invalid ItemID=%d from %s"),
+			ItemID, *GetName());
+		return;
+	}
 
-	// ⑥ 发放武器：后续叠加武器系统时在此 Spawn + 装备
-	//    TODO: ServerSpawnWeapon(ItemID, PS);
+	// [5] 金额校验：使用 DataTable 中的 Price（不信任客户端）
+	if (PS->Money < ItemRow->Price) return;
 
-	UE_LOG(LogTemp, Log, TEXT("[BuyMenu] %s purchased ItemID=%d for $%d, remaining $%d"),
-		*GetName(), ItemID, ItemCost, PS->Money);
-}
+	// [6] 扣款（AddMoney 内部 Broadcast OnMoneyChanged -> BuyMenu 刷新）
+	PS->AddMoney(-ItemRow->Price);
 
-bool ABlasterPlayerController::ServerRequestPurchase_Validate(int32 ItemID, int32 ItemCost)
-{
-	// 客户端发来的 ItemCost 仅作"用户期望价"参考，不做安全校验
-	// 实际扣款金额由服务端 Implementation 内部查表决定
-	return ItemID > 0 && ItemCost > 0;
+	// [7] 物品分发：委托 GameMode 按 Category 处理（Step 6 实现 ProcessPurchase）
+	ABombDefusalGameMode* GameMode = GetWorld()->GetAuthGameMode<ABombDefusalGameMode>();
+	if (GameMode)
+	{
+		GameMode->ProcessPurchase(this, *ItemRow);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[BuyMenu] %s purchased ItemID=%d (%s) for $%d, remaining $%d"),
+		*GetName(), ItemID, *ItemRow->DisplayName.ToString(), ItemRow->Price, PS->Money);
 }
 
 // ========================================================================

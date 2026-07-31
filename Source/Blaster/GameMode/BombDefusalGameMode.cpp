@@ -11,6 +11,11 @@
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
 #include "Engine/Engine.h"
+#include "Blaster/BlasterTypes/ShopTypes.h"
+#include "Blaster/BlasterComponents/CombatComponent.h"
+#include "Blaster/BlasterComponents/ThrowableComponent.h"
+#include "Blaster/BlasterComponents/BuffComponent.h"
+#include "EngineUtils.h"  // TActorIterator
 
 ABombDefusalGameMode::ABombDefusalGameMode()
 {
@@ -45,6 +50,19 @@ void ABombDefusalGameMode::BeginPlay()
 		{
 			BlasterGameState->EconomyConfig = Config;
 			BlasterGameState->HalftimeRound = HalftimeRound;
+		}
+	}
+
+	// ===== SHOP DATA TABLE =====
+	// 加载商店物品 DataTable → 写入 GameState（服务端查表定价用）
+	if (HasAuthority() && !ShopItemTableRef.IsNull())
+	{
+		UDataTable* LoadedTable = ShopItemTableRef.LoadSynchronous();
+		if (BlasterGameState)
+		{
+			BlasterGameState->ShopItemTable = LoadedTable;
+			UE_LOG(LogTemp, Log, TEXT("[Shop] DT_ShopItems loaded: %d rows"),
+				LoadedTable ? LoadedTable->GetRowMap().Num() : 0);
 		}
 	}
 }
@@ -169,6 +187,11 @@ void ABombDefusalGameMode::AssignTeamsOnce()
 void ABombDefusalGameMode::StartRoundPrepare()
 {
 	RoundNumber++;
+
+	// [NEW] Step 7: 回合开始前清理上回合残留
+	ClearAllBuffsOnAllPlayers();    // 清除所有存活玩家的 Buff
+	CleanupDroppedWeapons();        // 销毁地面遗留武器
+
 	CountdownTime = RoundPrepareTime;
 
 	// 必须先推送到 GameState，再切 MatchState：
@@ -366,16 +389,27 @@ void ABombDefusalGameMode::CleanupBodiesAndRespawn()
 		APlayerController* PC = It->Get();
 		if (!PC) continue;
 
-		// 先 UnPossess 清除 Controller 对旧 Pawn 的引用，
-		// 否则 RestartPlayer 内 GetPawn() 非空会跳过生成新 Pawn
-		APawn* OldPawn = PC->GetPawn();
-		if (OldPawn)
+		ABlasterCharacter* OldCharacter = Cast<ABlasterCharacter>(PC->GetPawn());
+
+		// 存活玩家：保留 Pawn，传送回重生点（武器/投掷物/血条/护盾自然继承）
+		if (OldCharacter && !OldCharacter->IsElimmed())
 		{
-			PC->UnPossess();
-			OldPawn->Destroy();  // 清理旧尸体
+			if (PlayerStarts.Num() > 0)
+			{
+				int32 Selection = FMath::RandRange(0, PlayerStarts.Num() - 1);
+				OldCharacter->SetActorLocation(PlayerStarts[Selection]->GetActorLocation());
+			}
+			OldCharacter->bDisableGameplayInput = true;
+			continue;
 		}
 
-		// RestartPlayer：GetPawn() 已是 nullptr → 生成新 Pawn → Possess
+		// 死亡玩家：销毁尸体 → 重生 → 发放默认武器
+		if (OldCharacter)
+		{
+			PC->UnPossess();
+			OldCharacter->Destroy();
+		}
+
 		if (PlayerStarts.Num() > 0)
 		{
 			int32 Selection = FMath::RandRange(0, PlayerStarts.Num() - 1);
@@ -387,9 +421,9 @@ void ABombDefusalGameMode::CleanupBodiesAndRespawn()
 		}
 
 		// 准备阶段禁止移动/战斗输入，只允许转视角和购买
-		if (ABlasterCharacter* Char = Cast<ABlasterCharacter>(PC->GetPawn()))
+		if (ABlasterCharacter* NewChar = Cast<ABlasterCharacter>(PC->GetPawn()))
 		{
-			Char->bDisableGameplayInput = true;
+			NewChar->bDisableGameplayInput = true;
 		}
 	}
 
@@ -662,9 +696,217 @@ void ABombDefusalGameMode::ExecuteHalftimeSwap()
 	// ⑤ 连胜/连败归零（比分不重置）
 	BlasterGameState->ResetAllStreaks();
 
+	// [NEW] Step 7: 半场交换物品重置
+	// A — 清除所有 Buff
+	ClearAllBuffsOnAllPlayers();
+
+	// B+C — 清除投掷物 + 发放默认武器（EquipWeapon 内部自动 Drop 旧武器到地面）
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		ABlasterPlayerController* PC = Cast<ABlasterPlayerController>(It->Get());
+		if (!PC) continue;
+
+		ABlasterCharacter* Character = Cast<ABlasterCharacter>(PC->GetPawn());
+		if (!Character) continue;
+
+		// B — 清除投掷物
+		if (Character->GetThrowable())
+		{
+			Character->GetThrowable()->ClearAllThrowables();
+		}
+
+		// C — 发放默认武器（EquipWeapon → DropEquippedWeapon 自动将旧武器变为 Dropped）
+		//     不主动 Destroy：否则 SpawDefaultWeapon → EquipWeapon → DropEquippedWeapon 访问野指针
+		Character->SpawDefaultWeapon();
+	}
+
+	// D — 清理地面武器（销毁 B/C 步骤中 Drop 到地面的旧武器，兜底）
+	CleanupDroppedWeapons();
+
 	SyncToGameState();
 	if (BlasterGameState) BlasterGameState->BroadcastRoundInfo();
 
 	UE_LOG(LogTemp, Log, TEXT("[Economy] HalftimeSwap executed | Score: TeamA=%d TeamB=%d | All Money=$%d"),
 		BlasterGameState->TeamARoundWins, BlasterGameState->TeamBRoundWins, Config->StartingMoney);
+}
+
+// ================================================================
+// 购买系统：物品分发
+// ================================================================
+
+void ABombDefusalGameMode::ProcessPurchase(ABlasterPlayerController* PC,
+                                            const FShopItemRow& ItemRow)
+{
+    ABlasterCharacter* Character = Cast<ABlasterCharacter>(PC->GetPawn());
+    if (!Character) return;
+
+    switch (ItemRow.Category)
+    {
+    case EShopItemCategory::ESIC_Weapon:
+        SpawnAndEquipPurchasedWeapon(Character, ItemRow.WeaponClass);
+        break;
+
+    case EShopItemCategory::ESIC_Ammo:
+        GrantAmmoToEquippedWeapon(Character, ItemRow.AmmoWeaponType, ItemRow.AmmoAmount);
+        break;
+
+    case EShopItemCategory::ESIC_Throwable:
+        AddThrowableToInventory(Character, ItemRow.ThrowableType);
+        break;
+
+    case EShopItemCategory::ESIC_Buff:
+        ApplyBuffToCharacter(Character, ItemRow.BuffType);
+        break;
+
+    default:
+        break;
+    }
+}
+
+// ── 武器：Spawn + 设置初始弹药 + 装备 ──
+void ABombDefusalGameMode::SpawnAndEquipPurchasedWeapon(
+    ABlasterCharacter* Character, TSubclassOf<AWeapon> WeaponClass)
+{
+    if (!WeaponClass) return;
+
+    UWorld* World = GetWorld();
+    if (!World) return;
+
+    // [1] 服务端生成武器 Actor
+    AWeapon* Weapon = World->SpawnActor<AWeapon>(WeaponClass);
+    if (!Weapon) return;
+
+    // [2] 设置初始弹药：满弹匣 + 1 倍弹匣容量备弹
+    Weapon->SetInitialAmmo(Weapon->GetMagCapacity(), Weapon->GetMagCapacity());
+
+    // [3] 标记为非默认武器：死亡时掉落而非销毁
+    Weapon->bDestroyWeapon = false;
+
+    // [4] 装备武器（内部自动 DropEquippedWeapon 扔掉旧武器）
+    Character->GetCombat()->EquipWeapon(Weapon);
+
+    UE_LOG(LogTemp, Log, TEXT("[Shop] %s equipped purchased weapon: %s (Ammo=%d, Spare=%d)"),
+        *Character->GetName(), *GetNameSafe(Weapon), Weapon->GetAmmo(), Weapon->GetSpareAmmo());
+}
+
+// ── 弹药：给手持武器补充备弹 ──
+void ABombDefusalGameMode::GrantAmmoToEquippedWeapon(
+    ABlasterCharacter* Character, EWeaponType AmmoWeaponType, int32 Amount)
+{
+    // [1] 获取手持武器
+    AWeapon* EquippedWeapon = Character->GetEquippedWeapon();
+    if (!EquippedWeapon) return;  // 无武器，拒绝
+
+    // [2] 类型匹配校验
+    if (EquippedWeapon->GetWeaponType() != AmmoWeaponType) return;
+
+    // [3] 备弹已满校验
+    if (EquippedWeapon->GetSpareAmmo() >= EquippedWeapon->GetMaxSpareAmmo()) return;
+
+    // [4] 补充备弹（AddToSpare 内部已做 Clamp）
+    EquippedWeapon->AddToSpare(Amount);
+
+    UE_LOG(LogTemp, Log, TEXT("[Shop] %s granted %d ammo to %s (Spare=%d)"),
+        *Character->GetName(), Amount, *GetNameSafe(EquippedWeapon),
+        EquippedWeapon->GetSpareAmmo());
+}
+
+// ── 投掷物：增加库存 ──
+void ABombDefusalGameMode::AddThrowableToInventory(
+    ABlasterCharacter* Character, EThrowableType ThrowableType)
+{
+    UThrowableComponent* ThrowComp = Character->GetThrowable();
+    if (!ThrowComp) return;
+
+    // [1] 获取上限（从 EconomyConfig）
+    ABlasterGameState* GS = GetGameState<ABlasterGameState>();
+    if (!GS || !GS->EconomyConfig) return;
+
+    int32 MaxCount = 0;
+    switch (ThrowableType)
+    {
+    case EThrowableType::ETT_FragGrenade:
+        MaxCount = GS->EconomyConfig->MaxFragGrenadeCount;
+        break;
+    case EThrowableType::ETT_Flashbang:
+        MaxCount = GS->EconomyConfig->MaxFlashbangCount;
+        break;
+    case EThrowableType::ETT_SmokeGrenade:
+        MaxCount = GS->EconomyConfig->MaxSmokeGrenadeCount;
+        break;
+    default:
+        return;
+    }
+
+    // [2] 校验上限
+    if (!ThrowComp->CanAddThrowable(ThrowableType, MaxCount)) return;
+
+    // [3] 增加计数
+    ThrowComp->AddThrowable(ThrowableType, 1);
+
+    UE_LOG(LogTemp, Log, TEXT("[Shop] %s purchased throwable %d, now has %d"),
+        *Character->GetName(), (int32)ThrowableType,
+        ThrowComp->GetCount(ThrowableType));
+}
+
+// ── Buff：立即应用效果 ──
+void ABombDefusalGameMode::ApplyBuffToCharacter(
+    ABlasterCharacter* Character, EBuffType BuffType)
+{
+    UBuffComponent* BuffComp = Character->GetBuff();
+    if (!BuffComp) return;
+
+    switch (BuffType)
+    {
+    case EBuffType::EBT_Speed:
+        BuffComp->BuffSpeed(1600.f, 850.f, 30.f);
+        break;
+
+    case EBuffType::EBT_Jump:
+        BuffComp->BuffJump(4000.f, 30.f);
+        break;
+
+    case EBuffType::EBT_Shield:
+        BuffComp->ReplenishShield(100.f, 5.f);
+        break;
+
+    default:
+        break;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[Shop] %s applied buff %d"),
+        *Character->GetName(), (int32)BuffType);
+}
+
+// ================================================================
+// 回合清理
+// ================================================================
+
+void ABombDefusalGameMode::CleanupDroppedWeapons()
+{
+    // 遍历世界中所有 AWeapon Actor，销毁 Dropped 状态的（地面遗留武器）
+    for (TActorIterator<AWeapon> It(GetWorld()); It; ++It)
+    {
+        AWeapon* Weapon = *It;
+        if (Weapon && Weapon->GetWeaponState() == EWeaponState::EWS_Dropped)
+        {
+            Weapon->Destroy();
+        }
+    }
+}
+
+void ABombDefusalGameMode::ClearAllBuffsOnAllPlayers()
+{
+    // 遍历所有 PlayerController，对存活角色清除 Buff
+    for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+    {
+        ABlasterPlayerController* PC = Cast<ABlasterPlayerController>(It->Get());
+        if (!PC) continue;
+
+        ABlasterCharacter* Character = Cast<ABlasterCharacter>(PC->GetPawn());
+        if (Character && Character->GetBuff())
+        {
+            Character->GetBuff()->ClearAllBuffs();
+        }
+    }
 }

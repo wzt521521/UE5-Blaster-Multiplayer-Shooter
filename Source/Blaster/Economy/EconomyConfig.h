@@ -95,4 +95,20 @@ public:
     // 防守方成功拆除炸弹，全队每人加成
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Economy|Bomb")
     int32 BombDefusalBonus = 50;
+
+    // ────────────────────────────────────────────
+    // 商店系统 — 投掷物携带上限
+    // ────────────────────────────────────────────
+
+    // 破片手雷最多携带数量（购买/拾取共享校验）
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Economy|Shop|ThrowableLimit")
+    int32 MaxFragGrenadeCount = 2;
+
+    // 闪光弹最多携带数量
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Economy|Shop|ThrowableLimit")
+    int32 MaxFlashbangCount = 2;
+
+    // 烟雾弹最多携带数量
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Economy|Shop|ThrowableLimit")
+    int32 MaxSmokeGrenadeCount = 2;
 };

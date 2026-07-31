@@ -145,3 +145,28 @@ void UBuffComponent::MulticastJumpBuff_Implementation(float JumpVelocity)
 
 	Character->GetCharacterMovement()->JumpZVelocity = JumpVelocity;
 }
+
+// ── 清除所有 Buff（回合开始/半场交换调用）──
+void UBuffComponent::ClearAllBuffs()
+{
+	if (GetOwnerRole() != ROLE_Authority) return;
+
+	// 清除 Speed 定时器并恢复原始速度
+	if (GetWorld()->GetTimerManager().IsTimerActive(SpeedBuffTimer))
+	{
+		GetWorld()->GetTimerManager().ClearTimer(SpeedBuffTimer);
+		ResetSpeeds();
+	}
+
+	// 清除 Jump 定时器并恢复原始跳跃
+	if (GetWorld()->GetTimerManager().IsTimerActive(JumpBuffTimer))
+	{
+		GetWorld()->GetTimerManager().ClearTimer(JumpBuffTimer);
+		ResetJump();
+	}
+
+	// 停止 Shield 平滑增长（不清零当前 Shield 值 — 由调用方决定）
+	bReplenishingShield = false;
+	ShieldReplenishRate = 0.f;
+	ShieldReplenishAmount = 0.f;
+}

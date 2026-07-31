@@ -3,6 +3,7 @@
 
 #include "BlasterGameState.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
+#include "Blaster/BlasterTypes/ShopTypes.h"
 #include "Net/UnrealNetwork.h"
 
 void ABlasterGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &OutLifetimeProps) const
@@ -146,4 +147,30 @@ void ABlasterGameState::UpdateTopScore(ABlasterPlayerState *ScoringPlayer)
 		TopScoringPlayers.AddUnique(ScoringPlayer);
 	}
 	// NewScore < CurrentTopScore：已被超越，不加入（Remove 已将其移除）
+}
+
+// ── 商店物品查询：遍历 DataTable 按 ItemID 匹配 ──
+// 当前 20 行 O(N) 遍历无性能问题；后续 ≥100 行时可改为 TMap 缓存
+const FShopItemRow* ABlasterGameState::FindShopItem(int32 ItemID) const
+{
+    if (!ShopItemTable) return nullptr;
+
+    TArray<FShopItemRow*> AllRows;
+    ShopItemTable->GetAllRows<FShopItemRow>(TEXT("ShopLookup"), AllRows);
+
+    for (const FShopItemRow* Row : AllRows)
+    {
+        if (Row && Row->ItemID == ItemID)
+        {
+            return Row;
+        }
+    }
+    return nullptr;
+}
+
+// ── 蓝图查询包装：返回 Price，-1 = 无效 ID ──
+int32 ABlasterGameState::GetShopItemPrice(int32 ItemID) const
+{
+    const FShopItemRow* Row = FindShopItem(ItemID);
+    return Row ? Row->Price : -1;
 }

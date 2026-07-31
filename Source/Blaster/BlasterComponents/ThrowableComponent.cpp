@@ -457,3 +457,42 @@ void UThrowableComponent::SelectThrowable(EThrowableType Type)
 		CurrentGravityScale = CDO->ProjectileGravityScale;
 	}
 }
+
+// ── 库存管理（购买系统调用）──
+bool UThrowableComponent::CanAddThrowable(EThrowableType Type, int32 MaxCount) const
+{
+	return GetCount(Type) < MaxCount;
+}
+
+void UThrowableComponent::AddThrowable(EThrowableType Type, int32 Amount)
+{
+	// 调用方需先用 CanAddThrowable 校验上限，此处不做重复检查
+	// 安全保护：客户端不允许直接修改
+	if (GetOwnerRole() != ROLE_Authority) return;
+
+	switch (Type)
+	{
+	case EThrowableType::ETT_FragGrenade:
+		FragGrenadeCount = FMath::Max(0, FragGrenadeCount + Amount);
+		break;
+	case EThrowableType::ETT_Flashbang:
+		FlashbangCount = FMath::Max(0, FlashbangCount + Amount);
+		break;
+	case EThrowableType::ETT_SmokeGrenade:
+		SmokeGrenadeCount = FMath::Max(0, SmokeGrenadeCount + Amount);
+		break;
+	default:
+		break;
+	}
+	// OnRep 自动触发客户端 UI 刷新（三个计数器均为 Replicated）
+}
+
+void UThrowableComponent::ClearAllThrowables()
+{
+	if (GetOwnerRole() != ROLE_Authority) return;
+
+	FragGrenadeCount = 0;
+	FlashbangCount = 0;
+	SmokeGrenadeCount = 0;
+	// OnRep 自动触发客户端 UI 刷新
+}

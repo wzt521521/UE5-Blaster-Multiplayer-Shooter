@@ -266,6 +266,13 @@ void AWeapon::AddToSpare(int32 Amount)
 	SetHUDAmmo();
 }
 
+void AWeapon::SetInitialAmmo(int32 MagazineAmmo, int32 SpareAmount)
+{
+	Ammo = FMath::Clamp(MagazineAmmo, 0, MagCapacity);
+	SpareAmmo = FMath::Clamp(SpareAmount, 0, MaxSpareAmmo);
+	SetHUDAmmo();  // 推送到 HUD
+}
+
 void AWeapon::OnRep_SpareAmmo()
 {
 	SetHUDAmmo();

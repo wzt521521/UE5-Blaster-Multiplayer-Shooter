@@ -27,6 +27,9 @@ public:
 	// Shield：服务器调用 → Tick 每帧递增护盾（平滑 ramp-up），可叠加多次拾取
 	void ReplenishShield(float ShieldAmount, float ReplenishTime);
 
+	// 清除所有激活的 Buff，恢复角色原始属性（回合开始/半场交换调用）
+	void ClearAllBuffs();
+
 protected:
 	virtual void BeginPlay() override;
 

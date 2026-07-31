@@ -50,6 +50,8 @@ public:
 	void ReloadFromSpare(int32 Amount);
 	// 从拾取物添加备弹（拾取弹药时调用）
 	void AddToSpare(int32 Amount);
+	// 设置初始弹药（购买武器 / 默认武器发放时调用，允许调用方指定弹匣和备弹量）
+	void SetInitialAmmo(int32 MagazineAmmo, int32 SpareAmount);
 	virtual void OnRep_Owner() override;
 	UPROPERTY(EditAnywhere, Category = Combat)
 	float FireDelay = .15f;
@@ -199,6 +201,7 @@ public:
 	float ZoomInterpSpeed = 6.f;
 
 	void SetWeaponState(EWeaponState State);
+	FORCEINLINE EWeaponState GetWeaponState() const { return WeaponState; }
 	FORCEINLINE USphereComponent* GetAreaSphere() const {return AreaSphere;}
 	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() const {return WeaponMesh;}
 	FORCEINLINE float GetZoomedFOV() const { return ZoomedFOV; }
