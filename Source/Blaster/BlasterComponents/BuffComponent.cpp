@@ -106,6 +106,12 @@ void UBuffComponent::ReplenishShield(float ShieldAmount, float ReplenishTime)
 	ShieldReplenishAmount += ShieldAmount;              // 累加，支持多次拾取叠加
 }
 
+void UBuffComponent::BuffHeal(float HealAmount)
+{
+	if (Character == nullptr) return;
+	Character->Heal(HealAmount);
+}
+
 void UBuffComponent::ShieldRampUp(float DeltaTime)
 {
 	if (!bReplenishingShield || Character == nullptr || Character->IsElimmed()) return;

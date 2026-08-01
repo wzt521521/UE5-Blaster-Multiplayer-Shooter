@@ -41,6 +41,7 @@ void UBuyMenu::NativeConstruct()
     if (Button_Speed)  Button_Speed->OnClicked.AddDynamic(this, &UBuyMenu::OnSpeedClicked);
     if (Button_Jump)   Button_Jump->OnClicked.AddDynamic(this, &UBuyMenu::OnJumpClicked);
     if (Button_Shield) Button_Shield->OnClicked.AddDynamic(this, &UBuyMenu::OnShieldClicked);
+    if (Button_Heal)   Button_Heal->OnClicked.AddDynamic(this, &UBuyMenu::OnHealClicked);
 }
 
 void UBuyMenu::NativeDestruct()
@@ -82,4 +83,45 @@ void UBuyMenu::RequestPurchase(int32 ItemID)
 void UBuyMenu::OnMoneyChangedHandler(int32 NewMoney, int32 Delta)
 {
     if (MoneyText) MoneyText->SetText(FText::AsNumber(NewMoney));
+}
+
+void UBuyMenu::TryPurchase(int32 ItemID)
+{
+    // 客户端查表取价格（DataTable 客户端可读）
+    int32 Price = 0;
+    if (ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>())
+    {
+        Price = GS->GetShopItemPrice(ItemID);
+    }
+
+    if (Price <= 0) return;  // 无效 ItemID
+
+    if (GetPlayerMoney() < Price)
+    {
+        ShowInsufficientFundsWarning();
+        return;
+    }
+
+    RequestPurchase(ItemID);
+}
+
+void UBuyMenu::ShowInsufficientFundsWarning()
+{
+    if (!InsufficientFundsText) return;
+
+    InsufficientFundsText->SetVisibility(ESlateVisibility::Visible);
+
+    // 2 秒后自动隐藏
+    FTimerHandle HideTimer;
+    GetWorld()->GetTimerManager().SetTimer(
+        HideTimer,
+        FTimerDelegate::CreateWeakLambda(this, [this]()
+        {
+            if (InsufficientFundsText)
+            {
+                InsufficientFundsText->SetVisibility(ESlateVisibility::Hidden);
+            }
+        }),
+        2.f, false
+    );
 }

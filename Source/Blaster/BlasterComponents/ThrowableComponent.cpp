@@ -203,7 +203,19 @@ void UThrowableComponent::ExecuteThrow()
 	}
 
 	// 松手瞬间锁定瞄准点，防止延迟期间准星漂移
-	CachedAimTarget = Character->GetActorLocation() + Character->GetActorForwardVector() * 1000.f;
+			// 使用相机视角方向（而非角色身体朝向），确保投掷物朝屏幕准星方向飞行
+		FVector CamLoc;
+		FRotator CamRot;
+		if (ABlasterPlayerController* PC = Cast<ABlasterPlayerController>(Character->Controller))
+		{
+			PC->GetPlayerViewPoint(CamLoc, CamRot);
+		}
+		else
+		{
+			CamLoc = Character->GetActorLocation();
+			CamRot = Character->GetActorRotation();
+		}
+		CachedAimTarget = CamLoc + CamRot.Vector() * 1000.f;
 
 	bThrowableEquipped = false;
 

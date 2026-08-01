@@ -27,6 +27,9 @@ public:
 	// Shield：服务器调用 → Tick 每帧递增护盾（平滑 ramp-up），可叠加多次拾取
 	void ReplenishShield(float ShieldAmount, float ReplenishTime);
 
+	// Heal Buff：立即恢复指定生命值
+	void BuffHeal(float HealAmount);
+
 	// 清除所有激活的 Buff，恢复角色原始属性（回合开始/半场交换调用）
 	void ClearAllBuffs();
 

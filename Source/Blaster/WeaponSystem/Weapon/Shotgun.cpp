@@ -5,7 +5,6 @@
 #include "Particles/ParticleSystemComponent.h"
 #include "Sound/SoundCue.h"
 #include "Kismet/KismetMathLibrary.h"
-#include "DrawDebugHelpers.h"
 
 void AShotgun::FireShotgun(const TArray<FVector_NetQuantize>& HitTargets)
 {
@@ -27,12 +26,6 @@ void AShotgun::FireShotgun(const TArray<FVector_NetQuantize>& HitTargets)
 		{
 			FHitResult FireHit;
 			WeaponTraceHit(Start, HitTarget, FireHit);
-
-			// 调试射线：所有弹丸都画线，命中角色=红色，未命中=蓝色
-			FVector TraceEnd = FireHit.bBlockingHit ? FireHit.ImpactPoint : HitTarget;
-			FColor DebugColor = FireHit.bBlockingHit ? FColor::Red : FColor::Blue;
-			DrawDebugLine(GetWorld(), Start, TraceEnd, DebugColor, false, 5.f, 0, 0.5f);
-			DrawDebugSphere(GetWorld(), TraceEnd, 6.f, 8, DebugColor, false, 5.f);
 
 			ABlasterCharacter* BlasterCharacter = Cast<ABlasterCharacter>(FireHit.GetActor());
 			if (BlasterCharacter)

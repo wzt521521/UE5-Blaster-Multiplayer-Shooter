@@ -86,34 +86,47 @@ private:
     UButton* Button_Jump;
     UPROPERTY(meta = (BindWidget))
     UButton* Button_Shield;
+    UPROPERTY(meta = (BindWidget))
+    UButton* Button_Heal;
+
+    // 金钱不足提示（红色闪烁 2s）
+    UPROPERTY(meta = (BindWidget))
+    UTextBlock* InsufficientFundsText;
+
+    // 金钱预检包装：查价格 → 比对金钱 → 发 RPC 或 显示提示
+    void TryPurchase(int32 ItemID);
+
+    // 显示 "金钱不足！" 2 秒后自动隐藏
+    void ShowInsufficientFundsWarning();
 
     // ── 点击回调（一行搞定，每个硬编码 ItemID）──
 
     // 武器
-    UFUNCTION() void OnARClicked()             { RequestPurchase(1001); }
-    UFUNCTION() void OnSMGClicked()            { RequestPurchase(1002); }
-    UFUNCTION() void OnRocketClicked()         { RequestPurchase(1003); }
-    UFUNCTION() void OnPistolClicked()         { RequestPurchase(1004); }
-    UFUNCTION() void OnSniperClicked()         { RequestPurchase(1005); }
-    UFUNCTION() void OnShotgunClicked()        { RequestPurchase(1006); }
-    UFUNCTION() void OnGrenadeLauncherClicked(){ RequestPurchase(1007); }
+    UFUNCTION() void OnARClicked()             { TryPurchase(1001); }
+    UFUNCTION() void OnSMGClicked()            { TryPurchase(1002); }
+    UFUNCTION() void OnRocketClicked()         { TryPurchase(1003); }
+    UFUNCTION() void OnPistolClicked()         { TryPurchase(1004); }
+    UFUNCTION() void OnSniperClicked()         { TryPurchase(1005); }
+    UFUNCTION() void OnShotgunClicked()        { TryPurchase(1006); }
+    UFUNCTION() void OnGrenadeLauncherClicked(){ TryPurchase(1007); }
 
     // 弹药
-    UFUNCTION() void OnARAmmoClicked()             { RequestPurchase(2001); }
-    UFUNCTION() void OnSMGAmmoClicked()            { RequestPurchase(2002); }
-    UFUNCTION() void OnRocketAmmoClicked()         { RequestPurchase(2003); }
-    UFUNCTION() void OnPistolAmmoClicked()         { RequestPurchase(2004); }
-    UFUNCTION() void OnSniperAmmoClicked()         { RequestPurchase(2005); }
-    UFUNCTION() void OnShotgunAmmoClicked()        { RequestPurchase(2006); }
-    UFUNCTION() void OnGrenadeLauncherAmmoClicked(){ RequestPurchase(2007); }
+    UFUNCTION() void OnARAmmoClicked()             { TryPurchase(2001); }
+    UFUNCTION() void OnSMGAmmoClicked()            { TryPurchase(2002); }
+    UFUNCTION() void OnRocketAmmoClicked()         { TryPurchase(2003); }
+    UFUNCTION() void OnPistolAmmoClicked()         { TryPurchase(2004); }
+    UFUNCTION() void OnSniperAmmoClicked()         { TryPurchase(2005); }
+    UFUNCTION() void OnShotgunAmmoClicked()        { TryPurchase(2006); }
+    UFUNCTION() void OnGrenadeLauncherAmmoClicked(){ TryPurchase(2007); }
 
     // 投掷物
-    UFUNCTION() void OnFragClicked()  { RequestPurchase(3001); }
-    UFUNCTION() void OnFlashClicked() { RequestPurchase(3002); }
-    UFUNCTION() void OnSmokeClicked() { RequestPurchase(3003); }
+    UFUNCTION() void OnFragClicked()  { TryPurchase(3001); }
+    UFUNCTION() void OnFlashClicked() { TryPurchase(3002); }
+    UFUNCTION() void OnSmokeClicked() { TryPurchase(3003); }
 
     // Buff
-    UFUNCTION() void OnSpeedClicked()  { RequestPurchase(4001); }
-    UFUNCTION() void OnJumpClicked()   { RequestPurchase(4002); }
-    UFUNCTION() void OnShieldClicked() { RequestPurchase(4003); }
+    UFUNCTION() void OnSpeedClicked()  { TryPurchase(4001); }
+    UFUNCTION() void OnJumpClicked()   { TryPurchase(4002); }
+    UFUNCTION() void OnShieldClicked() { TryPurchase(4003); }
+    UFUNCTION() void OnHealClicked()   { TryPurchase(4004); }
 };

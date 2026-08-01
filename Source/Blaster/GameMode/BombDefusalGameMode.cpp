@@ -870,6 +870,10 @@ void ABombDefusalGameMode::ApplyBuffToCharacter(
         BuffComp->ReplenishShield(100.f, 5.f);
         break;
 
+    case EBuffType::EBT_Heal:
+        BuffComp->BuffHeal(100.f);  // 与 HealthPickup::HealAmount 调平
+        break;
+
     default:
         break;
     }

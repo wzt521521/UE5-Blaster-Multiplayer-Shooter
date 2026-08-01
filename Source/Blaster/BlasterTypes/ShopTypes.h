@@ -54,6 +54,7 @@ enum class EBuffType : uint8
     EBT_Speed  UMETA(DisplayName = "Speed"),
     EBT_Jump   UMETA(DisplayName = "Jump"),
     EBT_Shield UMETA(DisplayName = "Shield"),
+    EBT_Heal   UMETA(DisplayName = "Heal"),
 
     EBT_MAX    UMETA(DisplayName = "DefaultMAX")
 };

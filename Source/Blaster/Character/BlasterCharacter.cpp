@@ -456,21 +456,15 @@ void ABlasterCharacter::FireButtonReleased()
 void ABlasterCharacter::ReceiveDamage(AActor *DamagedActor, float Damage, const UDamageType *DamageType, AController *InstigatorController, AActor *DamageCauser)
 {
 	// ————————————————————————————————————————————
-	// 护盾先吸收伤害，护盾不够了才扣血
+	// 护盾存在 → 20% 免伤 + 抵挡破碎一击（溢出不扣血）
+	// 护盾已破 → 全额扣血
 	// ————————————————————————————————————————————
 	float DamageToHealth = Damage;
 	if (Shield > 0.f)
 	{
-		if (Shield >= Damage)           // 护盾能完全吸收
-		{
-			Shield = FMath::Clamp(Shield - Damage, 0.f, MaxShield);
-			DamageToHealth = 0.f;
-		}
-		else                            // 护盾不够，先扣光护盾，剩余伤害扣血
-		{
-			DamageToHealth = FMath::Clamp(DamageToHealth - Shield, 0.f, Damage);
-			Shield = 0.f;
-		}
+		const float ReducedDamage = Damage * 0.8f;
+		Shield = FMath::Clamp(Shield - ReducedDamage, 0.f, MaxShield);
+		DamageToHealth = 0.f;  // 溢出不扣血，护盾扛下全部
 	}
 
 	Health = FMath::Clamp(Health - DamageToHealth, 0.f, MaxHealth);
