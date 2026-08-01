@@ -11,6 +11,8 @@ class URoundOverlay;
 class UAnnouncement;
 class UBuyMenu;
 class UThrowableSelectionWheel;
+class UImage;
+class USoundCue;
 
 // 准星绘制所需的数据包，由武器传递给HUD
 USTRUCT(BlueprintType)
@@ -73,6 +75,18 @@ public:
 	UPROPERTY()
 	URoundOverlay* RoundOverlay;
 
+	// ── 闪光弹致盲 ──
+	// 独立于 CharacterOverlay，始终在视口最顶层，不受回合切换影响
+	UPROPERTY(EditAnywhere, Category = "Player HUD")
+	TSubclassOf<UUserWidget> FlashOverlayClass;
+	UPROPERTY()
+	UImage* FlashOverlay;
+
+	UPROPERTY(EditAnywhere, Category = "Throwable|Flashbang")
+	USoundCue* FlashbangTinnitusSound;
+
+	void ShowFlashEffect(float Duration);
+
 	// ========================================================================
 	// Show/Hide API —— Widget 已在 InitializeHUD 中创建，这里只控制可见性
 	// ========================================================================
@@ -100,6 +114,13 @@ public:
 private:
 
 	FHUDPackage HUDPackage;
+
+	// 闪光淡出
+	FTimerHandle FlashFadeTimer;
+	float FlashEffectStartTime = 0.f;
+	float FlashEffectDuration = 0.f;
+	void TickFlashFade();
+	void HideFlashEffect();
 
 	void DrawCrosshair(UTexture2D* Texture, FVector2D ViewportCenter, FVector2D Spread, FLinearColor CrosshairColor);
 public:

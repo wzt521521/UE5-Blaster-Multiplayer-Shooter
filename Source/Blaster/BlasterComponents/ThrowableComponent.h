@@ -82,7 +82,7 @@ protected:
 	void ServerCancelCooking();
 
 	UFUNCTION(Server, Reliable)
-	void ServerThrow(FVector_NetQuantize AimTarget);
+	void ServerThrow(FVector_NetQuantize AimDirection);
 
 	// ===== 多播 RPC（所有客户端播动画）=====
 	UFUNCTION(NetMulticast, Reliable)
@@ -153,7 +153,7 @@ private:
 	FTimerHandle CookTimer;
 	FTimerHandle ThrowDelayTimer; // 延迟投出定时器
 
-	FVector_NetQuantize CachedAimTarget; // 松手瞬间锁定的瞄准点，防止 0.5s 延迟期间准星漂移
+	FVector_NetQuantize CachedAimDirection; // 松手瞬间锁定的瞄准方向，防止延迟期间准星漂移
 
 	// 从当前选中类型 CDO 缓存的参数（非复制，选型时更新）
 	float CurrentMaxCookTime = 0.f;           // 当前类型蓄力最大时间

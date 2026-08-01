@@ -17,10 +17,10 @@ void AThrowableProjectile::Launch(const FVector& HandLocation, const FVector& Ai
 {
 	if (!ProjectileMovementComponent) return;
 
+	// 绕瞄准方向的右轴旋转上抛角，相对于瞄准线而非固定世界Z轴
 	FVector Direction = (AimTarget - HandLocation).GetSafeNormal();
-	const float UpwardRads = FMath::DegreesToRadians(ThrowUpwardAngle);
-	Direction.Z += FMath::Sin(UpwardRads);
-	Direction.Normalize();
+	const FVector RightAxis = FVector::CrossProduct(Direction, FVector::UpVector).GetSafeNormal();
+	Direction = Direction.RotateAngleAxis(ThrowUpwardAngle, RightAxis);
 
 	ProjectileMovementComponent->Velocity = Direction * ThrowSpeed;
 	ProjectileMovementComponent->ProjectileGravityScale = ProjectileGravityScale;

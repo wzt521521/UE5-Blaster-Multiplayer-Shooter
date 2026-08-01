@@ -50,10 +50,6 @@ public:
 	UPROPERTY(meta = (BindWidget))
 	UTextBlock* ThrowableCountdownText;
 
-	// 全屏白色覆盖层，默认 Hidden，闪光弹爆炸时显示并淡出
-	UPROPERTY(meta = (BindWidget))
-	UImage* FlashOverlay;
-
 	// 客户端延迟显示文本（ms），每帧 Tick 由 PlayerController 更新
 	UPROPERTY(meta = (BindWidget))
 	UTextBlock* PingText;

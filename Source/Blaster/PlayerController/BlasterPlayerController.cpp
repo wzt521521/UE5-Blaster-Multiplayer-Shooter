@@ -655,45 +655,9 @@ void ABlasterPlayerController::SetHUDThrowableCooking(bool bIsCooking, float Rem
 
 void ABlasterPlayerController::ClientApplyFlashEffect_Implementation(float Duration)
 {
-	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (!BlasterHud || !BlasterHud->CharacterOverlay || !BlasterHud->CharacterOverlay->FlashOverlay) return;
-
-	BlasterHud->CharacterOverlay->FlashOverlay->SetVisibility(ESlateVisibility::Visible);
-	BlasterHud->CharacterOverlay->FlashOverlay->SetRenderOpacity(1.0f);
-
-	if (FlashbangTinnitusSound)
+	if (ABlasterHud* BHud = Cast<ABlasterHud>(GetHUD()))
 	{
-		UGameplayStatics::PlaySound2D(this, FlashbangTinnitusSound);
-	}
-
-	FlashEffectStartTime = GetWorld()->GetTimeSeconds();
-	FlashEffectDuration = Duration;
-
-	GetWorldTimerManager().SetTimer(
-		FlashFadeTimer,
-		this,
-		&ABlasterPlayerController::TickFlashFade,
-		0.05f,
-		true
-	);
-}
-
-void ABlasterPlayerController::TickFlashFade()
-{
-	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
-	if (!BlasterHud || !BlasterHud->CharacterOverlay || !BlasterHud->CharacterOverlay->FlashOverlay) return;
-
-	const float Elapsed = GetWorld()->GetTimeSeconds() - FlashEffectStartTime;
-	const float Alpha = 1.0f - Elapsed / FlashEffectDuration;
-
-	if (Alpha <= 0.f)
-	{
-		BlasterHud->CharacterOverlay->FlashOverlay->SetVisibility(ESlateVisibility::Hidden);
-		GetWorldTimerManager().ClearTimer(FlashFadeTimer);
-	}
-	else
-	{
-		BlasterHud->CharacterOverlay->FlashOverlay->SetRenderOpacity(Alpha);
+		BHud->ShowFlashEffect(Duration);
 	}
 }
 

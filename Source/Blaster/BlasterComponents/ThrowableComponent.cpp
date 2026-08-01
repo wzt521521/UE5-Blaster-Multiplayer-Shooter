@@ -44,21 +44,32 @@ void UThrowableComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 					PC->SetHUDThrowableCooking(true, Remaining);
 				}
 
-				// 预测轨迹线起点使用 ThrowSocket（可偏离手部实现平移效果）
-				const USkeletalMeshSocket* ThrowSocket = Character->GetMesh()->GetSocketByName(ThrowSocketName);
-				if (ThrowSocket)
+				// 预测轨迹线：与服务端 Launch() 使用完全相同的计算方式
+				const USkeletalMeshSocket* PredictSocket = Character->GetMesh()->GetSocketByName(HandSocketName);
+				if (PredictSocket)
 				{
-					const FVector ThrowLocation = ThrowSocket->GetSocketTransform(Character->GetMesh()).GetLocation();
-					const FVector AimTarget = Character->GetActorLocation() + Character->GetActorForwardVector() * 1000.f;
+					const FVector PredictStart = PredictSocket->GetSocketTransform(Character->GetMesh()).GetLocation();
 
-					FVector Direction = (AimTarget - ThrowLocation).GetSafeNormal();
-					const float UpwardRads = FMath::DegreesToRadians(CurrentThrowAngle);
-					Direction.Z += FMath::Sin(UpwardRads);
-					Direction.Normalize();
+					// 获取相机方向（与服务端 AimDirection 完全一致）
+					FRotator CamRot;
+					if (ABlasterPlayerController* CamPC = Cast<ABlasterPlayerController>(Character->Controller))
+					{
+						FVector CamLoc;
+						CamPC->GetPlayerViewPoint(CamLoc, CamRot);
+					}
+					else
+					{
+						CamRot = Character->GetActorRotation();
+					}
+
+					// 与服务端 Launch() 完全相同的计算
+					FVector Direction = CamRot.Vector().GetSafeNormal();
+					const FVector RightAxis = FVector::CrossProduct(Direction, FVector::UpVector).GetSafeNormal();
+					Direction = Direction.RotateAngleAxis(CurrentThrowAngle, RightAxis);
 					const FVector LaunchVelocity = Direction * CurrentThrowSpeed;
 
 					FPredictProjectilePathParams PathParams;
-					PathParams.StartLocation = ThrowLocation;
+					PathParams.StartLocation = PredictStart;
 					PathParams.LaunchVelocity = LaunchVelocity;
 					PathParams.ProjectileRadius = 5.f;
 					PathParams.MaxSimTime = 3.f;
@@ -215,7 +226,7 @@ void UThrowableComponent::ExecuteThrow()
 			CamLoc = Character->GetActorLocation();
 			CamRot = Character->GetActorRotation();
 		}
-		CachedAimTarget = CamLoc + CamRot.Vector() * 1000.f;
+		CachedAimDirection = CamRot.Vector();  // 只传方向给服务器
 
 	bThrowableEquipped = false;
 
@@ -231,7 +242,7 @@ void UThrowableComponent::ExecuteThrow()
 
 void UThrowableComponent::DelayedThrow_Internal()
 {
-	ServerThrow(CachedAimTarget);  // 服务器检查 Cooking 状态，内部 SpawnThrowable + TransitionTo(Idle)
+	ServerThrow(CachedAimDirection);  // 服务器用本地角色位置 + 客户端方向重建瞄准点
 }
 
 void UThrowableComponent::CancelCooking()
@@ -283,7 +294,7 @@ void UThrowableComponent::ServerCancelCooking_Implementation()
 	TransitionTo(EThrowableState::ETS_Idle);
 }
 
-void UThrowableComponent::ServerThrow_Implementation(FVector_NetQuantize AimTarget)
+void UThrowableComponent::ServerThrow_Implementation(FVector_NetQuantize AimDirection)
 {
 	if (ThrowState != EThrowableState::ETS_Cooking) return;
 	if (GetCount(SelectedType) <= 0) return;
@@ -308,7 +319,12 @@ void UThrowableComponent::ServerThrow_Implementation(FVector_NetQuantize AimTarg
 	case EThrowableType::ETT_SmokeGrenade: SmokeGrenadeCount = FMath::Max(SmokeGrenadeCount - 1, 0); break;
 	}
 
-	SpawnThrowable(AimTarget, RemainingFuse);
+	// 用服务器本地角色位置 + 客户端方向重建瞄准点（避免位置不同步导致方向错乱）
+	const FVector HandLocation = Character->GetMesh()->GetSocketByName(HandSocketName)
+		? Character->GetMesh()->GetSocketTransform(HandSocketName).GetLocation()
+		: Character->GetActorLocation();
+	const FVector ServerAimTarget = HandLocation + AimDirection * 1000.f;
+	SpawnThrowable(ServerAimTarget, RemainingFuse);
 	MulticastPlayThrowAnimation();
 	TransitionTo(EThrowableState::ETS_Idle);
 }
@@ -438,6 +454,14 @@ void UThrowableComponent::OnRep_ThrowState()
 	{
 	case EThrowableState::ETS_Idle:
 		GetWorld()->GetTimerManager().ClearTimer(CookTimer);
+		// 同步重置冷却：客户端收到 Idle 状态时补上冷却定时器，
+		// 否则 bCanThrow 永远卡在 false，无法再次投掷
+		GetWorld()->GetTimerManager().SetTimer(
+			CooldownTimer,
+			FTimerDelegate::CreateLambda([this]() { bCanThrow = true; }),
+			ThrowCooldown,
+			false
+		);
 		break;
 	case EThrowableState::ETS_Cooking:
 		CookStartTime = GetWorld()->GetTimeSeconds();

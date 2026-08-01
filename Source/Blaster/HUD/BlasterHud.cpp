@@ -8,6 +8,9 @@
 #include "BuyMenu.h"
 #include "ThrowableSelectionWheel.h"
 #include "GameFramework/PlayerController.h"
+#include "Components/Image.h"
+#include "Sound/SoundCue.h"
+#include "Kismet/GameplayStatics.h"
 
 void ABlasterHud::DrawHUD()
 {
@@ -103,6 +106,15 @@ void ABlasterHud::InitializeHUD()
 	if (BuyMenuClass && !BuyMenu)
 	{
 		BuyMenu = CreateWidget<UBuyMenu>(PlayerController, BuyMenuClass);
+	}
+
+	// 全屏白色覆盖层（闪光弹致盲），独立在最顶层
+	if (FlashOverlayClass && !FlashOverlay)
+	{
+		UUserWidget* FlashWidget = CreateWidget<UUserWidget>(PlayerController, FlashOverlayClass);
+		FlashWidget->AddToViewport();
+		FlashWidget->SetVisibility(ESlateVisibility::Hidden);
+		FlashOverlay = Cast<UImage>(FlashWidget->GetWidgetFromName("FlashImage"));
 	}
 
 	// 投掷物选择面板
@@ -226,4 +238,54 @@ void ABlasterHud::HideRoundOverlay()
 	{
 		RoundOverlay->SetVisibility(ESlateVisibility::Hidden);
 	}
+}
+
+// ========================================================================
+// 闪光弹致盲控制
+// ========================================================================
+void ABlasterHud::ShowFlashEffect(float Duration)
+{
+	if (!FlashOverlay) return;
+
+	FlashOverlay->SetVisibility(ESlateVisibility::Visible);
+	FlashOverlay->SetRenderOpacity(1.f);
+
+	if (FlashbangTinnitusSound)
+	{
+		UGameplayStatics::PlaySound2D(GetWorld(), FlashbangTinnitusSound);
+	}
+
+	FlashEffectStartTime = GetWorld()->GetTimeSeconds();
+	FlashEffectDuration = Duration;
+
+	GetWorldTimerManager().SetTimer(
+		FlashFadeTimer,
+		this,
+		&ABlasterHud::TickFlashFade,
+		0.05f, true
+	);
+}
+
+void ABlasterHud::TickFlashFade()
+{
+	if (!FlashOverlay) return;
+
+	const float Elapsed = GetWorld()->GetTimeSeconds() - FlashEffectStartTime;
+	const float Alpha = 1.f - Elapsed / FlashEffectDuration;
+
+	if (Alpha <= 0.f)
+	{
+		HideFlashEffect();
+	}
+	else
+	{
+		FlashOverlay->SetRenderOpacity(Alpha);
+	}
+}
+
+void ABlasterHud::HideFlashEffect()
+{
+	if (!FlashOverlay) return;
+	FlashOverlay->SetVisibility(ESlateVisibility::Hidden);
+	GetWorldTimerManager().ClearTimer(FlashFadeTimer);
 }

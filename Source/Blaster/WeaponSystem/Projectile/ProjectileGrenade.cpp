@@ -13,6 +13,9 @@ AProjectileGrenade::AProjectileGrenade()
 	ProjectileMovementComponent->bRotationFollowsVelocity = true;
 	ProjectileMovementComponent->SetIsReplicated(true);
 	ProjectileMovementComponent->bShouldBounce = true;
+
+	// 开启移动复制：确保客户端收到 Velocity 而非 Velocity=(0,0,0)
+	SetReplicateMovement(true);
 }
 
 void AProjectileGrenade::BeginPlay()

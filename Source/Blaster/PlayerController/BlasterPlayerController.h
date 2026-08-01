@@ -150,17 +150,7 @@ private:
 	// 投掷物径向选择面板是否正在显示，ShowThrowablePanel/HideThrowablePanel 维护此标志
 	bool bThrowablePanelOpen = false;
 
-	// 闪光弹配置
-	UPROPERTY(EditAnywhere, Category = "Throwable|Flashbang")
-	USoundCue* FlashbangTinnitusSound;
-
-	// 闪光弹白屏淡出状态
-	FTimerHandle FlashFadeTimer;
-	float FlashEffectStartTime = 0.f;
-	float FlashEffectDuration = 0.f;
-
-	// 每帧更新白屏透明度，Alpha ≤ 0 时隐藏 FlashOverlay
-	void TickFlashFade();
+	// 闪光弹配置已迁移到 BlasterHud
 
 	FString GetInfoText(const TArray<class ABlasterPlayerState*>& Players);
 };
