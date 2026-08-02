@@ -7,6 +7,8 @@
 #include "RoundOverlay.h"
 #include "BuyMenu.h"
 #include "ThrowableSelectionWheel.h"
+#include "Blaster/BombMode/BombStatusWidget.h"    // 炸弹状态 HUD（BombMode Phase 4）
+#include "Blaster/BombMode/BombInteractWidget.h"  // 炸弹交互进度条（BombMode Phase 4）
 #include "GameFramework/PlayerController.h"
 #include "Components/Image.h"
 #include "Sound/SoundCue.h"
@@ -127,6 +129,18 @@ void ABlasterHud::InitializeHUD()
 	if (RoundOverlayClass && !RoundOverlay)
 	{
 		RoundOverlay = CreateWidget<URoundOverlay>(PlayerController, RoundOverlayClass);
+	}
+
+	// ── 炸弹状态 HUD（倒计时+点位名）（BombMode Phase 4）──
+	if (BombStatusWidgetClass && !BombStatusWidget)
+	{
+		BombStatusWidget = CreateWidget<UBombStatusWidget>(PlayerController, BombStatusWidgetClass);
+	}
+
+	// ── 炸弹交互进度条（[Q] 安放/拆除 + 进度）（BombMode Phase 4）──
+	if (BombInteractWidgetClass && !BombInteractWidget)
+	{
+		BombInteractWidget = CreateWidget<UBombInteractWidget>(PlayerController, BombInteractWidgetClass);
 	}
 }
 
@@ -288,4 +302,34 @@ void ABlasterHud::HideFlashEffect()
 	if (!FlashOverlay) return;
 	FlashOverlay->SetVisibility(ESlateVisibility::Hidden);
 	GetWorldTimerManager().ClearTimer(FlashFadeTimer);
+}
+
+// ========================================================================
+// 炸弹 UI Widget 创建/显示/隐藏（BombMode Phase 4）
+// ========================================================================
+void ABlasterHud::CreateBombWidgets()
+{
+	// 集中创建已在 InitializeHUD 中完成，保留空实现兼容
+}
+
+void ABlasterHud::ShowBombStatus(bool bShow)
+{
+	if (!BombStatusWidget) return;
+
+	if (bShow && !BombStatusWidget->IsInViewport())
+	{
+		BombStatusWidget->AddToViewport();
+	}
+	BombStatusWidget->SetVisibility(bShow ? ESlateVisibility::Visible : ESlateVisibility::Hidden);
+}
+
+void ABlasterHud::ShowBombInteract(bool bShow)
+{
+	if (!BombInteractWidget) return;
+
+	if (bShow && !BombInteractWidget->IsInViewport())
+	{
+		BombInteractWidget->AddToViewport();
+	}
+	BombInteractWidget->SetVisibility(bShow ? ESlateVisibility::Visible : ESlateVisibility::Hidden);
 }

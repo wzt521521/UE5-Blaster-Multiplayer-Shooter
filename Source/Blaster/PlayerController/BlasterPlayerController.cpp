@@ -22,6 +22,11 @@
 #include "Blaster/BlasterTypes/Announcement.h"
 #include "Kismet/GameplayStatics.h"
 #include "Blaster/BlasterTypes/ShopTypes.h"
+#include "Blaster/BombMode/BombStatusWidget.h"   // 炸弹状态 HUD
+#include "Blaster/BombMode/BombInteractWidget.h" // 炸弹交互进度条
+#include "Blaster/BombMode/BombActor.h"          // 查找已安放炸弹
+#include "Blaster/BombMode/BombSite.h"           // 读取点位名
+#include "Kismet/GameplayStatics.h"
 
 void ABlasterPlayerController::SetupInputComponent()
 {
@@ -55,6 +60,9 @@ void ABlasterPlayerController::Tick(float DeltaTime)
 	{
 		SetHUDPing(FMath::RoundToInt(GetPlayerState<APlayerState>()->GetPingInMilliseconds()));
 	}
+
+	// 炸弹状态 HUD：检查是否有已安放的炸弹 → 推送倒计时和点位名
+	UpdateBombStatusFromWorld();
 }
 
 void ABlasterPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -1007,3 +1015,92 @@ void ABlasterPlayerController::ServerRequestPurchase_Implementation(int32 ItemID
 // 客户端 GameState 复制延迟补偿：HandleXxx 中 GS 数据可能尚未到达，
 // PollInit 下一帧调用此函数用最新 GS 数据刷新公告文本
 // ========================================================================
+
+// ========================================================================
+// 炸弹 UI 推送（BombMode Phase 4）
+// 这些函数由 BombInteractionComponent / GameMode 调用，将数据推送到 HUD Widget
+// ========================================================================
+
+void ABlasterPlayerController::UpdateBombStatusUI(float RemainingTime, float TotalTime,
+	const FString& StatusText, const FString& SiteName)
+{
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	if (!BlasterHud) return;
+
+	UBombStatusWidget* Widget = BlasterHud->GetBombStatusWidget();
+	if (!Widget) return;
+
+	Widget->UpdateTimer(RemainingTime, TotalTime);
+	Widget->UpdateStatusText(StatusText);
+	Widget->UpdateSiteName(SiteName);
+	Widget->SetBombUIVisible(true);
+}
+
+void ABlasterPlayerController::UpdateBombInteractUI(float Progress, const FString& PromptText, bool bVisible, bool bShowProgress)
+{
+	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	if (!BlasterHud) return;
+
+	UBombInteractWidget* Widget = BlasterHud->GetBombInteractWidget();
+	if (!Widget) return;
+
+	// 进度条仅按住 Q 键时显示（bShowProgress），靠近点位时隐藏
+	if (bShowProgress)
+	{
+		Widget->UpdateProgress(Progress);
+		Widget->SetProgressBarVisible(true);
+	}
+	else
+	{
+		Widget->SetProgressBarVisible(false);
+	}
+	Widget->UpdatePromptText(PromptText);
+	Widget->SetInteractVisible(bVisible);
+}
+
+void ABlasterPlayerController::ShowBombPlantedAnnouncement(const FString& SiteName)
+{
+	FString Msg = FString::Printf(TEXT("炸弹已在 %s 点安放！"), *SiteName);
+	SetHUDMismatchNotification(Msg);
+}
+
+// 每帧 Tick 调用：查找世界中已安放的炸弹 → 推送 StatusWidget
+void ABlasterPlayerController::UpdateBombStatusFromWorld()
+{
+	UWorld* World = GetWorld();
+	if (!World) return;
+
+	// 查找 Planted 状态的炸弹
+	ABombActor* PlantedBomb = nullptr;
+	TArray<AActor*> FoundBombs;
+	UGameplayStatics::GetAllActorsOfClass(World, ABombActor::StaticClass(), FoundBombs);
+	for (AActor* Actor : FoundBombs)
+	{
+		ABombActor* Bomb = Cast<ABombActor>(Actor);
+		if (Bomb && Bomb->GetBombState() == EBombState::EBS_Planted)
+		{
+			PlantedBomb = Bomb;
+			break;
+		}
+	}
+
+	if (PlantedBomb)
+	{
+		ABombSite* Site = PlantedBomb->GetPlantedSite();
+		FString SiteName = Site ? Site->SiteName : TEXT("?");
+		UpdateBombStatusUI(
+			PlantedBomb->GetRemainingTime(),
+			PlantedBomb->BombCountdown,
+			FString::Printf(TEXT("炸弹已在 %s 点安放"), *SiteName),
+			SiteName);
+	}
+	else
+	{
+		// 没有炸弹 → 隐藏 StatusWidget
+		BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+		if (BlasterHud && BlasterHud->GetBombStatusWidget())
+		{
+			BlasterHud->GetBombStatusWidget()->SetBombUIVisible(false);
+		}
+	}
+}

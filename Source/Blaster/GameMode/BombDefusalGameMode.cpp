@@ -15,6 +15,9 @@
 #include "Blaster/BlasterComponents/CombatComponent.h"
 #include "Blaster/BlasterComponents/ThrowableComponent.h"
 #include "Blaster/BlasterComponents/BuffComponent.h"
+#include "Blaster/PlayerStart/TeamPlayerStart.h"
+#include "Blaster/BombMode/BombActor.h"    // 炸弹实体（BombMode Phase 3）
+#include "Blaster/BombMode/BombSite.h"     // 埋包点（BombMode Phase 3）
 #include "EngineUtils.h"  // TActorIterator
 
 ABombDefusalGameMode::ABombDefusalGameMode()
@@ -191,6 +194,7 @@ void ABombDefusalGameMode::StartRoundPrepare()
 	// [NEW] Step 7: 回合开始前清理上回合残留
 	ClearAllBuffsOnAllPlayers();    // 清除所有存活玩家的 Buff
 	CleanupDroppedWeapons();        // 销毁地面遗留武器
+	CleanupBomb();                  // 销毁上局炸弹（BombMode Phase 3）
 
 	CountdownTime = RoundPrepareTime;
 
@@ -229,6 +233,10 @@ void ABombDefusalGameMode::StartRoundInProgress()
 
 	// 回合计时器启动：超时 → 保卫者获胜（经典爆破规则）
 	CountdownTime = RoundTime;
+
+	// ── 炸弹模式：分配炸弹给随机攻方（BombMode Phase 3）──
+	AssignBombToRandomAttacker();
+
 	SetMatchState(MatchState::RoundInProgress);
 
 	// 恢复所有玩家的战斗输入（RoundPrepare 期间被 CleanupBodiesAndRespawn 禁用）
@@ -281,6 +289,13 @@ void ABombDefusalGameMode::OnPlayerKilled(ABlasterCharacter* DeadCharacter,
 		BlasterGameState->BroadcastAliveCount();  // 委托驱动 Widget 刷新
 	}
 
+	// ── 炸弹模式：携带者死亡 → 掉落炸弹（BombMode Phase 3）──
+	if (DeadCharacter && CurrentBomb && CurrentBomb->GetBombState() == EBombState::EBS_Carried
+		&& CurrentBomb->GetOwner() == DeadCharacter)
+	{
+		DropBombFromDeadPlayer(DeadCharacter);
+	}
+
 	CheckRoundEnd();
 }
 
@@ -289,6 +304,17 @@ void ABombDefusalGameMode::CheckRoundEnd()
 	// 仅在战斗中检查：回合结束/准备阶段不重复判定
 	if (MatchState != MatchState::RoundInProgress) return;
 	if (!BlasterGameState) return;
+
+	// ── 炸弹模式扩展（BombMode Phase 3）──
+	// 炸弹已安放时：攻方全灭不结束（守方仍需拆包或等爆炸）
+	if (CurrentBomb && CurrentBomb->GetBombState() == EBombState::EBS_Planted)
+	{
+		// 守方全灭 → 攻方胜（即使炸弹还在倒计时）
+		if (BlasterGameState->DefenderAliveCount <= 0)
+			EndRound(ETeamID::ETI_Attacker);
+		// 攻方全灭 → 不结束，等炸弹爆炸或守方拆包
+		return;
+	}
 
 	if (BlasterGameState->AttackerAliveCount <= 0)
 		EndRound(ETeamID::ETI_Defender);
@@ -376,28 +402,71 @@ void ABombDefusalGameMode::ReturnToLobby()
 }
 
 // ========================================================================
+// 阵营出生点选择：覆盖 UE 原生 ChoosePlayerStart 钩子
+// ========================================================================
+// 策略：按 PlayerState->TeamID 筛选同阵营 ATeamPlayerStart，随机返回一个。
+//       子类覆盖此方法即可替换选点策略，无需修改 CleanupBodiesAndRespawn。
+// 回退：
+//   [1] 同阵营有专属点 → 随机取
+//   [2] 同阵营无专属点 → 从所有 ATeamPlayerStart 随机取（兼容全部 None 的旧配置）
+//   [3] 关卡无 ATeamPlayerStart → 走引擎默认 ChoosePlayerStart（普通 APlayerStart）
+AActor* ABombDefusalGameMode::ChoosePlayerStart_Implementation(AController* Player)
+{
+	ABlasterPlayerState* PS = Player->GetPlayerState<ABlasterPlayerState>();
+	if (!PS) return Super::ChoosePlayerStart_Implementation(Player);
+
+	// [1] 收集所有 ATeamPlayerStart（已包括普通 APlayerStart 的超集）
+	TArray<AActor*> AllTeamStarts;
+	UGameplayStatics::GetAllActorsOfClass(this, ATeamPlayerStart::StaticClass(), AllTeamStarts);
+
+	// [2] 按 PS->TeamID 筛选同阵营出生点
+	TArray<AActor*> MyTeamStarts;
+	for (AActor* Start : AllTeamStarts)
+	{
+		const ATeamPlayerStart* TPS = Cast<ATeamPlayerStart>(Start);
+		if (TPS && TPS->Team == PS->TeamID)
+		{
+			MyTeamStarts.Add(Start);
+		}
+	}
+
+	// [3] 同阵营有专属点 → 随机选取
+	if (MyTeamStarts.Num() > 0)
+	{
+		return MyTeamStarts[FMath::RandRange(0, MyTeamStarts.Num() - 1)];
+	}
+
+	// [4] 回退：关卡有 ATeamPlayerStart 但该阵营无专属点 → 全量随机
+	if (AllTeamStarts.Num() > 0)
+	{
+		return AllTeamStarts[FMath::RandRange(0, AllTeamStarts.Num() - 1)];
+	}
+
+	// [5] 最终回退：关卡未放置 ATeamPlayerStart → 引擎默认逻辑（普通 APlayerStart）
+	return Super::ChoosePlayerStart_Implementation(Player);
+}
+
+// ========================================================================
 // 复活逻辑：销毁死尸 → 重生所有玩家 → 重置存活计数
 // ========================================================================
 void ABombDefusalGameMode::CleanupBodiesAndRespawn()
 {
-	// 缓存 PlayerStart 列表（循环外获取，避免每个 PC 都查询一次）
-	TArray<AActor*> PlayerStarts;
-	UGameplayStatics::GetAllActorsOfClass(this, APlayerStart::StaticClass(), PlayerStarts);
-
 	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
 	{
 		APlayerController* PC = It->Get();
 		if (!PC) continue;
+
+		// 选点策略委托给 ChoosePlayerStart：同阵营筛选、回退、策略替换全部解耦
+		AActor* BestStart = ChoosePlayerStart(PC);
 
 		ABlasterCharacter* OldCharacter = Cast<ABlasterCharacter>(PC->GetPawn());
 
 		// 存活玩家：保留 Pawn，传送回重生点（武器/投掷物/血条/护盾自然继承）
 		if (OldCharacter && !OldCharacter->IsElimmed())
 		{
-			if (PlayerStarts.Num() > 0)
+			if (BestStart)
 			{
-				int32 Selection = FMath::RandRange(0, PlayerStarts.Num() - 1);
-				OldCharacter->SetActorLocation(PlayerStarts[Selection]->GetActorLocation());
+				OldCharacter->SetActorLocation(BestStart->GetActorLocation());
 			}
 			OldCharacter->bDisableGameplayInput = true;
 			continue;
@@ -410,10 +479,9 @@ void ABombDefusalGameMode::CleanupBodiesAndRespawn()
 			OldCharacter->Destroy();
 		}
 
-		if (PlayerStarts.Num() > 0)
+		if (BestStart)
 		{
-			int32 Selection = FMath::RandRange(0, PlayerStarts.Num() - 1);
-			RestartPlayerAtPlayerStart(PC, PlayerStarts[Selection]);
+			RestartPlayerAtPlayerStart(PC, BestStart);
 		}
 		else
 		{
@@ -728,6 +796,119 @@ void ABombDefusalGameMode::ExecuteHalftimeSwap()
 
 	UE_LOG(LogTemp, Log, TEXT("[Economy] HalftimeSwap executed | Score: TeamA=%d TeamB=%d | All Money=$%d"),
 		BlasterGameState->TeamARoundWins, BlasterGameState->TeamBRoundWins, Config->StartingMoney);
+}
+
+// ================================================================
+// 炸弹模式：分配/事件/掉落/清理（BombMode Phase 3）
+// ================================================================
+
+// 回合开始：Spawn 炸弹 → 随机分配给一名攻方
+void ABombDefusalGameMode::AssignBombToRandomAttacker()
+{
+	// 先清理上一局残留炸弹
+	CleanupBomb();
+
+	if (!BombActorClass) return; // 蓝图未配置 BombActor 子类，跳过
+
+	TArray<ABlasterPlayerState*> Attackers = GetPlayersInTeam(ETeamID::ETI_Attacker);
+	if (Attackers.Num() == 0) return;
+
+	// 随机选一名攻方
+	int32 RandomIndex = FMath::RandRange(0, Attackers.Num() - 1);
+	ABlasterPlayerState* CarrierPS = Attackers[RandomIndex];
+
+	// 找到该 PlayerState 对应的 Character
+	ABlasterCharacter* Carrier = nullptr;
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		ABlasterPlayerController* PC = Cast<ABlasterPlayerController>(It->Get());
+		if (PC && PC->GetPlayerState<ABlasterPlayerState>() == CarrierPS)
+		{
+			Carrier = Cast<ABlasterCharacter>(PC->GetPawn());
+			break;
+		}
+	}
+
+	if (!Carrier) return;
+
+	// Spawn 炸弹
+	UWorld* World = GetWorld();
+	if (!World) return;
+
+	CurrentBomb = World->SpawnActor<ABombActor>(BombActorClass);
+	if (!CurrentBomb) return;
+
+	// 绑定炸弹事件到 GameMode 回调（GameMode 是订阅者，BombActor 是发布者）
+	// 注意：BombActor 的委托使用 MULTICAST，绑定后不持有引用，解绑在 CleanupBomb 中
+	CurrentBomb->OnBombPlanted.AddUObject(this, &ABombDefusalGameMode::OnBombPlanted);
+	CurrentBomb->OnBombExploded.AddUObject(this, &ABombDefusalGameMode::OnBombExploded);
+	CurrentBomb->OnBombDefused.AddUObject(this, &ABombDefusalGameMode::OnBombDefused);
+
+	// Attach 到携带者身上
+	CurrentBomb->AssignToCarrier(Carrier);
+
+	UE_LOG(LogTemp, Log, TEXT("[Bomb] Assigned to random attacker: %s"), *Carrier->GetName());
+}
+
+// 炸弹安放事件回调 → 全服文字公告
+void ABombDefusalGameMode::OnBombPlanted(ABombSite* Site)
+{
+	FString SiteName = Site ? Site->SiteName : TEXT("Unknown");
+	FString Msg = FString::Printf(TEXT("炸弹已在 %s 点安放！"), *SiteName);
+
+	// 全服公告：遍历所有 PlayerController → HUD Announcement
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		ABlasterPlayerController* PC = Cast<ABlasterPlayerController>(It->Get());
+		if (PC)
+		{
+			PC->SetHUDAnnouncementCountdown(-1.f); // -1 表示显示公告文字而非倒计时
+			// 通过已有的 MismatchNotification 通道显示炸弹公告（绿色提示 5 秒）
+			PC->SetHUDMismatchNotification(Msg);
+		}
+	}
+}
+
+// 炸弹爆炸事件回调 → 攻方胜利
+void ABombDefusalGameMode::OnBombExploded()
+{
+	EndRound(ETeamID::ETI_Attacker);
+}
+
+// 炸弹拆除事件回调 → 守方胜利
+void ABombDefusalGameMode::OnBombDefused()
+{
+	EndRound(ETeamID::ETI_Defender);
+}
+
+// 携带者死亡：炸弹掉落在尸体位置
+void ABombDefusalGameMode::DropBombFromDeadPlayer(ABlasterCharacter* DeadCharacter)
+{
+	if (!CurrentBomb || !DeadCharacter) return;
+
+	FVector DropLocation = DeadCharacter->GetActorLocation();
+	CurrentBomb->DropAtLocation(DropLocation);
+}
+
+// 回合结束：销毁炸弹 + 解绑委托
+void ABombDefusalGameMode::CleanupBomb()
+{
+	if (!CurrentBomb) return;
+
+	// 解绑委托（虽然 Actor 马上销毁，显式解绑防悬空）
+	CurrentBomb->OnBombPlanted.RemoveAll(this);
+	CurrentBomb->OnBombExploded.RemoveAll(this);
+	CurrentBomb->OnBombDefused.RemoveAll(this);
+
+	// 保险重置：非爆炸结束的回合（拆包/团灭）不会经过 Explode()，
+	// 此处确保点位释放，防止下回合 bIsBombPlantedHere 粘滞
+	if (CurrentBomb->GetPlantedSite())
+	{
+		CurrentBomb->GetPlantedSite()->bIsBombPlantedHere = false;
+	}
+
+	CurrentBomb->Destroy();
+	CurrentBomb = nullptr;
 }
 
 // ================================================================

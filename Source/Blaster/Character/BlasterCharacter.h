@@ -8,6 +8,7 @@
 #include "GameFramework/Character.h"
 #include "Blaster/BlasterTypes/CombatState.h"
 #include "Blaster/BlasterTypes/ThrowableTypes.h"
+#include "Blaster/BombMode/BombTypes.h"
 #include "BlasterCharacter.generated.h"
 class ABlasterPlayerController;
 class ABlasterPlayerState;
@@ -64,6 +65,8 @@ protected:
 	void FireButtonPressed();
 	void FireButtonReleased();
 	void ThrowableWheelToggle();    // G 键按下 → 切换投掷物选择面板开/关
+	void BombInteractPressed();     // Q 键按下 → 安包/拆包（BombMode Phase 2）
+	void BombInteractReleased();    // Q 键松开 → 取消安包/拆包（Hold-to-interact）
 public:
 	// 由径向面板 Widget 调用（通过 PlayerController → Pawn）
 	void SelectThrowableType(EThrowableType Type);
@@ -119,6 +122,10 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UThrowableComponent* Throwable;
+
+	// 炸弹交互：Q键安包/拆包（BombMode Phase 2），在构造函数中 CreateDefaultSubobject
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
+	class UBombInteractionComponent* BombInteraction;
 
 	UFUNCTION(Server, Reliable)
 	void ServerEquipButtonPressed();
@@ -219,6 +226,8 @@ public:
 	FORCEINLINE class UCombatComponent* GetCombat() const { return Combat; }
 	FORCEINLINE class UBuffComponent* GetBuff() const { return Buff; }
 	FORCEINLINE class UThrowableComponent* GetThrowable() const { return Throwable; }
+	// 炸弹交互组件 getter（BombMode：Q键安包/拆包）
+	FORCEINLINE class UBombInteractionComponent* GetBombInteraction() const { return BombInteraction; }
 	FORCEINLINE UAnimMontage* GetReloadMontage() const { return ReloadMontage; }
 
 	// 准备阶段禁止移动/战斗输入，只允许转视角和购买（RoundPrepare 期间）

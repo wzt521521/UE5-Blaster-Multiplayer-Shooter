@@ -69,6 +69,12 @@ void SetHUDMatchCountdown(float CountdownTime);
 	UFUNCTION(Client, Reliable)
 	void ClientApplyFlashEffect(float Duration);
 
+	// ── 炸弹 UI 推送（BombMode Phase 4）──
+	void UpdateBombStatusUI(float RemainingTime, float TotalTime, const FString& StatusText, const FString& SiteName);
+	void UpdateBombInteractUI(float Progress, const FString& PromptText, bool bVisible, bool bShowProgress = false);
+	void ShowBombPlantedAnnouncement(const FString& SiteName);
+	void UpdateBombStatusFromWorld();  // Tick 中检查已安放炸弹 → 推 StatusWidget
+
 	float SingleTripTime = 0.f;
 
 protected:

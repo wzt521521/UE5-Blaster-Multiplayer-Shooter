@@ -11,6 +11,8 @@ class URoundOverlay;
 class UAnnouncement;
 class UBuyMenu;
 class UThrowableSelectionWheel;
+class UBombStatusWidget;
+class UBombInteractWidget;
 class UImage;
 class USoundCue;
 
@@ -86,6 +88,23 @@ public:
 	USoundCue* FlashbangTinnitusSound;
 
 	void ShowFlashEffect(float Duration);
+
+	// ── 炸弹 UI（BombMode Phase 4）──
+	UPROPERTY(EditAnywhere, Category = "Bomb UI")
+	TSubclassOf<UUserWidget> BombStatusWidgetClass;
+	UPROPERTY()
+	UBombStatusWidget* BombStatusWidget;
+
+	UPROPERTY(EditAnywhere, Category = "Bomb UI")
+	TSubclassOf<UUserWidget> BombInteractWidgetClass;
+	UPROPERTY()
+	UBombInteractWidget* BombInteractWidget;
+
+	void CreateBombWidgets();       // 集中预创建
+	void ShowBombStatus(bool bShow);
+	void ShowBombInteract(bool bShow);
+	UBombStatusWidget* GetBombStatusWidget() const { return BombStatusWidget; }
+	UBombInteractWidget* GetBombInteractWidget() const { return BombInteractWidget; }
 
 	// ========================================================================
 	// Show/Hide API —— Widget 已在 InitializeHUD 中创建，这里只控制可见性

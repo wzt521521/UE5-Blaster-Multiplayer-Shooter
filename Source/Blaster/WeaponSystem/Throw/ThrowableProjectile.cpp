@@ -2,15 +2,23 @@
 #include "Components/BoxComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "Net/UnrealNetwork.h"
 
 AThrowableProjectile::AThrowableProjectile()
 {
 	if (ProjectileMovementComponent)
 	{
-		ProjectileMovementComponent->InitialSpeed = 0.f;  // 停用自动初速，由 Launch() 手动设置
+		ProjectileMovementComponent->InitialSpeed = 0.f;  // 停用自动初速，由 Launch() 手动设置 + ReplicatedUsing 同步给客户端
 		ProjectileMovementComponent->MaxSpeed = ThrowSpeed;
 		ProjectileMovementComponent->bShouldBounce = true;
 	}
+}
+
+void AThrowableProjectile::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AThrowableProjectile, ReplicatedVelocity);
+	DOREPLIFETIME(AThrowableProjectile, ReplicatedGravityScale);
 }
 
 void AThrowableProjectile::Launch(const FVector& HandLocation, const FVector& AimTarget)
@@ -24,6 +32,21 @@ void AThrowableProjectile::Launch(const FVector& HandLocation, const FVector& Ai
 
 	ProjectileMovementComponent->Velocity = Direction * ThrowSpeed;
 	ProjectileMovementComponent->ProjectileGravityScale = ProjectileGravityScale;
+
+	// 复制给客户端：确保客户端 ProjectileMovementComponent 收到相同的 Velocity 和 GravityScale
+	ReplicatedVelocity = ProjectileMovementComponent->Velocity;
+	ReplicatedGravityScale = ProjectileGravityScale;
+}
+
+void AThrowableProjectile::OnRep_LaunchParams()
+{
+	// 客户端收到复制的 Launch 参数，直接赋值给 ProjectileMovementComponent，
+	// 绕过 InitialSpeed + SpawnRotation 自动推导（会被 BP 默认值覆盖不可靠）
+	if (!HasAuthority() && ProjectileMovementComponent)
+	{
+		ProjectileMovementComponent->Velocity = ReplicatedVelocity;
+		ProjectileMovementComponent->ProjectileGravityScale = ReplicatedGravityScale;
+	}
 }
 
 void AThrowableProjectile::SetFuseTime(float Time)

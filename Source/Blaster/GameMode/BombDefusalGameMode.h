@@ -11,6 +11,8 @@
 class ABlasterCharacter;
 class ABlasterPlayerController;
 class ABlasterPlayerState;
+class ABombActor;
+class ABombSite;
 class UDataTable;
 // 购买系统 — 前向声明（Step 6）
 struct FShopItemRow;
@@ -89,8 +91,23 @@ public:
 	// 遍历所有存活玩家，清除 Buff
 	void ClearAllBuffsOnAllPlayers();
 
+	// ── 炸弹模式（BombMode Phase 3）──
+
+	// 炸弹 Actor 子类（蓝图可替换为带自定义模型的子类）
+	UPROPERTY(EditDefaultsOnly, Category = "Bomb Mode")
+	TSubclassOf<ABombActor> BombActorClass;
+
+	// 追踪当前局使用的炸弹实例
+	UPROPERTY()
+	ABombActor* CurrentBomb = nullptr;
+
 protected:
 	virtual void BeginPlay() override;
+
+	// ── 阵营出生点选择策略 ──
+	// 覆盖 UE 原生钩子：按 PS->TeamID 筛选 ATeamPlayerStart。
+	// 子类可覆盖此方法替换不同选点策略（距敌最远、轮询等），无需修改 CleanupBodiesAndRespawn
+	virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
 
 	// ---- 可配置参数 ----
 	// 开局人数阈值（≥此人数自动开始比赛）
@@ -186,4 +203,20 @@ private:
 	TArray<ABlasterPlayerState*> GetPlayersInLogicalTeam(ELogicalTeam LT) const; // 按逻辑队筛选玩家
 	void DistributeRoundEconomy(ELogicalTeam WinningLT);           // 回合经济发放（统一发钱入口）
 	void ExecuteHalftimeSwap();                                     // 半场交换执行（6 步顺序）
+
+	// ── 炸弹模式（BombMode Phase 3）──
+
+	// 回合开始：Spawn 炸弹 → 随机分配给一名攻方
+	void AssignBombToRandomAttacker();
+
+	// 炸弹事件回调（绑定到 ABombActor 的委托）
+	void OnBombPlanted(ABombSite* Site);    // 炸弹安放 → 全服文字公告
+	void OnBombExploded();                  // 炸弹爆炸 → 攻方胜利
+	void OnBombDefused();                   // 炸弹拆除 → 守方胜利
+
+	// 携带者死亡时掉落炸弹（由 PlayerEliminated 调用）
+	void DropBombFromDeadPlayer(ABlasterCharacter* DeadCharacter);
+
+	// 销毁炸弹 + 解绑委托（回合清理时调用）
+	void CleanupBomb();
 };

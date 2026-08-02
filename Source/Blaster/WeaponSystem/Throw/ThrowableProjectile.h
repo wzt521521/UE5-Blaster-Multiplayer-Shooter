@@ -13,6 +13,7 @@ class BLASTER_API AThrowableProjectile : public AProjectileGrenade
 
 public:
 	AThrowableProjectile();
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	// 由投掷组件调用：设置初速并激活飞行
 	void Launch(const FVector& HandLocation, const FVector& AimTarget);
@@ -57,4 +58,15 @@ protected:
 	// 碰触即爆（子类构造中设为 true 启用）
 	UPROPERTY(EditAnywhere)
 	bool bExplodeOnImpact = false;
+
+private:
+	// 复制 Launch 参数给客户端：确保客户端 ProjectileMovementComponent 走相同逻辑接口
+	UPROPERTY(ReplicatedUsing = OnRep_LaunchParams)
+	FVector_NetQuantize ReplicatedVelocity;
+
+	UPROPERTY(ReplicatedUsing = OnRep_LaunchParams)
+	float ReplicatedGravityScale = 1.0f;
+
+	UFUNCTION()
+	void OnRep_LaunchParams();  // 客户端收到后立即应用 Velocity + GravityScale
 };

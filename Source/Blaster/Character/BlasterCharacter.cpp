@@ -10,6 +10,7 @@
 #include "../BlasterComponents/CombatComponent.h"
 #include "Blaster/BlasterComponents/BuffComponent.h"
 #include "Blaster/BlasterComponents/ThrowableComponent.h"
+#include "Blaster/BombMode/BombInteractionComponent.h"  // Q键安包/拆包
 #include "Kismet/GameplayStatics.h"
 #include "Blaster/Blaster.h"
 #include "Kismet/KismetMathLibrary.h"
@@ -50,6 +51,9 @@ ABlasterCharacter::ABlasterCharacter()
 
 	Throwable = CreateDefaultSubobject<UThrowableComponent>(TEXT("ThrowableComponent"));
 	Throwable->SetIsReplicated(true);
+
+	// 炸弹交互组件：Q键安包/拆包（BombMode Phase 2）
+	BombInteraction = CreateDefaultSubobject<UBombInteractionComponent>(TEXT("BombInteractionComponent"));
 
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
@@ -104,6 +108,10 @@ void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	PlayerInputComponent->BindAction("Reload", IE_Pressed, this, &ABlasterCharacter::ReloadButtonPressed);
 
 	PlayerInputComponent->BindAction("ThrowableWheel", IE_Pressed, this, &ABlasterCharacter::ThrowableWheelToggle);
+
+	// Q键：安包/拆包交互（Hold-to-interact：按下开始、松开取消）
+	PlayerInputComponent->BindAction("BombInteract", IE_Pressed, this, &ABlasterCharacter::BombInteractPressed);
+	PlayerInputComponent->BindAction("BombInteract", IE_Released, this, &ABlasterCharacter::BombInteractReleased);
 }
 
 void ABlasterCharacter::PostInitializeComponents()
@@ -470,6 +478,13 @@ void ABlasterCharacter::ReceiveDamage(AActor *DamagedActor, float Damage, const 
 	Health = FMath::Clamp(Health - DamageToHealth, 0.f, MaxHealth);
 	UpdateHUDHealth();
 	UpdateHUDShield();
+
+	// 受伤打断安包/拆包（BombMode：服务器权威取消交互）
+	if (BombInteraction && BombInteraction->IsInteracting())
+	{
+		BombInteraction->ForceCancelInteraction();
+	}
+
 	PlayHitReactMontage();
 
 	if(Health <= 0.f){
@@ -809,5 +824,23 @@ void ABlasterCharacter::DropOrDestroyWeapons()
 	if (Combat && Combat->EquippedWeapon)
 	{
 		DropOrDestroyWeapon(Combat->EquippedWeapon);
+	}
+}
+
+// Q键安包/拆包：转发到 BombInteractionComponent（Hold-to-interact）
+void ABlasterCharacter::BombInteractPressed()
+{
+	if (bDisableGameplayInput) return;
+	if (BombInteraction)
+	{
+		BombInteraction->OnInteractKeyPressed();
+	}
+}
+
+void ABlasterCharacter::BombInteractReleased()
+{
+	if (BombInteraction)
+	{
+		BombInteraction->OnInteractKeyReleased();
 	}
 }
