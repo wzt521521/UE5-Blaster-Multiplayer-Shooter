@@ -8,16 +8,20 @@ public class Blaster : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "UMG", "Niagara" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore" });
+
+		// UMG / Niagara：仅客户端目标链接（Server 无渲染管线，不需要 UI/特效模块）
+		if (Target.Type != TargetType.Server)
+		{
+			PublicDependencyModuleNames.AddRange(new string[] { "UMG", "Niagara" });
+		}
+
+		// Dedicated Server：需要 OnlineSubsystem + Null OSS 做直连（不走 Steam 认证）
+		if (Target.Type == TargetType.Server)
+		{
+			PublicDependencyModuleNames.AddRange(new string[] { "OnlineSubsystem", "OnlineSubsystemUtils" });
+		}
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
-
-		// Uncomment if you are using Slate UI
-		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
-		
-		// Uncomment if you are using online features
-		// PrivateDependencyModuleNames.Add("OnlineSubsystem");
-
-		// To include OnlineSubsystemSteam, add it to the plugins section in your uproject file with the Enabled attribute set to true
 	}
 }

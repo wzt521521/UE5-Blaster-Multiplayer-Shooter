@@ -1,7 +1,9 @@
 #include "Pickup.h"
 #include "Components/SphereComponent.h"
+#if !UE_SERVER
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
+#endif
 #include "Sound/SoundCue.h"
 #include "Kismet/GameplayStatics.h"
 #include "Blaster/WeaponSystem/Weapon/WeaponTypes.h"
@@ -28,8 +30,10 @@ APickup::APickup()
 	PickupMesh->SetRenderCustomDepth(true);
 	PickupMesh->SetCustomDepthStencilValue(CUSTOM_DEPTH_PURPLE);
 
+#if !UE_SERVER
 	PickupEffectComponent = CreateDefaultSubobject<UNiagaraComponent>(TEXT("PickupEffectComponent"));
-	PickupEffectComponent->SetupAttachment(RootComponent);
+	Cast<UNiagaraComponent>(PickupEffectComponent)->SetupAttachment(RootComponent);
+#endif
 }
 
 void APickup::BeginPlay()
@@ -68,10 +72,12 @@ void APickup::Destroyed()
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, PickupSound, GetActorLocation());
 	}
+#if !UE_SERVER
 	if (PickupEffect)
 	{
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, PickupEffect, GetActorLocation(), GetActorRotation());
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, Cast<UNiagaraSystem>(PickupEffect), GetActorLocation(), GetActorRotation());
 	}
+#endif
 }
 
 void APickup::OnSphereOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)

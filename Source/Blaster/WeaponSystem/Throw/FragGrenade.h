@@ -26,6 +26,7 @@ protected:
 	virtual void ExplodeDamage() override;
 
 	// 爆炸 Niagara 特效（一次性爆发，火光+碎片+烟雾）
+	// UObject* 替代 UNiagaraSystem*，避免 Server 目标链接 Niagara 模块
 	UPROPERTY(EditAnywhere, Category = "Frag Grenade|VFX")
-	UNiagaraSystem* ExplosionEffect;
+	UObject* ExplosionEffect;
 };

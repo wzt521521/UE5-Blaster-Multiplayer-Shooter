@@ -31,6 +31,7 @@ protected:
 	float FlashRadius = 1000.f;
 
 	// 闪光爆发 Niagara 粒子
+	// UObject* 替代 UNiagaraSystem*，避免 Server 目标链接 Niagara 模块
 	UPROPERTY(EditAnywhere, Category = "Flashbang")
-	UNiagaraSystem* ExplosionEffect;
+	UObject* ExplosionEffect;
 };

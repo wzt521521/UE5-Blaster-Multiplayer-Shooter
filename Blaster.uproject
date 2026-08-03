@@ -24,7 +24,8 @@
 		},
 		{
 			"Name": "OnlineSubsystemSteam",
-			"Enabled": true
+			"Enabled": true,
+			"TargetAllowList": [ "Client", "Editor" ]
 		}
 	]
 }

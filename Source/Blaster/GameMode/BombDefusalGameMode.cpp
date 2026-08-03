@@ -91,6 +91,8 @@ void ABombDefusalGameMode::BeginPlay()
 		if (BlasterGameState)
 		{
 			BlasterGameState->ShopItemTable = LoadedTable;
+			// DS 价格同步：提取 ID+Price 填充复制数组
+			BlasterGameState->SyncShopPrices();
 			UE_LOG(LogTemp, Log, TEXT("[Shop] DT_ShopItems loaded: %d rows"),
 				LoadedTable ? LoadedTable->GetRowMap().Num() : 0);
 		}

@@ -122,3 +122,14 @@ struct FShopItemRow : public FTableRowBase
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
     EBuffType BuffType;
 };
+
+// ── Dedicated Server 价格同步 ──
+// 客户端无法读服务端 DataTable（Listen Server 同进程可读，DS 进程隔离不可读），
+// 服务器加载 DT 后提取 ID+Price 填充复制数组，客户端通过此数组查价格。
+USTRUCT()
+struct FShopItemPriceEntry
+{
+	GENERATED_BODY()
+	UPROPERTY() int32 ItemID = 0;
+	UPROPERTY() int32 Price  = 0;
+};

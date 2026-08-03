@@ -7,9 +7,11 @@
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Particles/ParticleSystemComponent.h"
 #include "Particles/ParticleSystem.h"
+#if !UE_SERVER
 #include "NiagaraSystem.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
+#endif
 #include "Sound/SoundCue.h"
 #include "Blaster/Character/BlasterCharacter.h"
 #include "Blaster/Blaster.h"
@@ -66,8 +68,9 @@ void AProjectile::SpawnTrailSystem()
 {
 	if (TrailNiagaraSystem)
 	{
+#if !UE_SERVER
 		TrailNiagaraComponent = UNiagaraFunctionLibrary::SpawnSystemAttached(
-			TrailNiagaraSystem,
+			Cast<UNiagaraSystem>(TrailNiagaraSystem),
 			GetRootComponent(),
 			FName(),
 			GetActorLocation(),
@@ -75,6 +78,7 @@ void AProjectile::SpawnTrailSystem()
 			EAttachLocation::KeepWorldPosition,
 			true  // bAutoDestroy
 		);
+#endif
 	}
 	else if (TrailSystem)
 	{

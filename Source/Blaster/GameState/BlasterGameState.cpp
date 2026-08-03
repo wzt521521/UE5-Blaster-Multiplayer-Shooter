@@ -76,6 +76,7 @@ void ABlasterGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &Ou
     DOREPLIFETIME(ABlasterGameState, MatchEndDuration);
     DOREPLIFETIME(ABlasterGameState, AttackerAliveCount);
     DOREPLIFETIME(ABlasterGameState, DefenderAliveCount);
+    DOREPLIFETIME(ABlasterGameState, ShopItemPrices);
 }
 
 // ------------------------------------------------------------
@@ -218,6 +219,23 @@ const FShopItemRow* ABlasterGameState::FindShopItem(int32 ItemID) const
 // ── 蓝图查询包装：返回 Price，-1 = 无效 ID ──
 int32 ABlasterGameState::GetShopItemPrice(int32 ItemID) const
 {
-    const FShopItemRow* Row = FindShopItem(ItemID);
-    return Row ? Row->Price : -1;
+	// 从复制数组读（客户端 DS 安全，无需访问 DataTable 内存）
+	for (const FShopItemPriceEntry& Entry : ShopItemPrices)
+	{
+		if (Entry.ItemID == ItemID) return Entry.Price;
+	}
+	return -1;
+}
+
+// 服务端：从 DataTable 提取 ID+Price 填充复制数组，触发客户端同步
+void ABlasterGameState::SyncShopPrices()
+{
+	if (!HasAuthority() || !ShopItemTable) return;
+	TArray<FShopItemRow*> AllRows;
+	ShopItemTable->GetAllRows<FShopItemRow>(TEXT("ShopSync"), AllRows);
+	ShopItemPrices.Reset();
+	for (const FShopItemRow* Row : AllRows)
+	{
+		if (Row) ShopItemPrices.Add({Row->ItemID, Row->Price});
+	}
 }

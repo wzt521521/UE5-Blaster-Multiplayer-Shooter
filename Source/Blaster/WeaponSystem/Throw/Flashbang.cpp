@@ -3,8 +3,10 @@
 #include "Blaster/PlayerController/BlasterPlayerController.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
+#if !UE_SERVER
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
+#endif
 
 AFlashbang::AFlashbang()
 {
@@ -61,13 +63,15 @@ void AFlashbang::ExplodeDamage()
 	}
 
 	// 3. 生成一次性 Niagara 爆发特效
+#if !UE_SERVER
 	if (ExplosionEffect)
 	{
 		UNiagaraFunctionLibrary::SpawnSystemAtLocation(
 			GetWorld(),
-			ExplosionEffect,
+			Cast<UNiagaraSystem>(ExplosionEffect),
 			ExplosionOrigin,
 			GetActorRotation()
 		);
 	}
+#endif
 }

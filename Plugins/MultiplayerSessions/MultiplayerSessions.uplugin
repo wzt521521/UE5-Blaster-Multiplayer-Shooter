@@ -18,7 +18,8 @@
 		{
 			"Name": "MultiplayerSessions",
 			"Type": "Runtime",
-			"LoadingPhase": "Default"
+			"LoadingPhase": "Default",
+			"TargetAllowList": [ "Client", "Editor" ]
 		}
 	],
 	"Plugins": [
@@ -28,7 +29,8 @@
 		},
 		{
 			"Name": "OnlineSubsystemSteam",
-			"Enabled": true
+			"Enabled": true,
+			"TargetAllowList": [ "Client", "Editor" ]
 		}
 	]
 }

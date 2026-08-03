@@ -1,6 +1,8 @@
 #include "FragGrenade.h"
+#if !UE_SERVER
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
+#endif
 
 void AFragGrenade::ExplodeDamage()
 {
@@ -8,13 +10,15 @@ void AFragGrenade::ExplodeDamage()
 	Super::ExplodeDamage();
 
 	// Niagara 爆发特效
+#if !UE_SERVER
 	if (ExplosionEffect)
 	{
 		UNiagaraFunctionLibrary::SpawnSystemAtLocation(
 			GetWorld(),
-			ExplosionEffect,
+			Cast<UNiagaraSystem>(ExplosionEffect),
 			GetActorLocation(),
 			GetActorRotation()
 		);
 	}
+#endif
 }

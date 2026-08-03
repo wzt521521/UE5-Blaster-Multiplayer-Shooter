@@ -59,11 +59,12 @@ protected:
 	class UParticleSystemComponent* TrailSystemComponent;
 
 	// Niagara 版尾迹（优先级高于 TrailSystem，两者互斥）
+	// UObject* 替代 UNiagaraSystem* / UNiagaraComponent*，避免 Server 目标链接 Niagara 模块
 	UPROPERTY(EditAnywhere, Category = "Projectile|VFX")
-	class UNiagaraSystem* TrailNiagaraSystem;
+	UObject* TrailNiagaraSystem;
 
 	UPROPERTY()
-	class UNiagaraComponent* TrailNiagaraComponent;
+	UObject* TrailNiagaraComponent;
 
 	// ===== 伤害 =====
 	UPROPERTY(EditAnywhere)

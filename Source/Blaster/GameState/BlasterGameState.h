@@ -6,6 +6,7 @@
 #include "GameFramework/GameState.h"
 #include "Blaster/BlasterTypes/TeamTypes.h"
 #include "Blaster/BlasterTypes/EconomyTypes.h"
+#include "Blaster/BlasterTypes/ShopTypes.h"  // FShopItemPriceEntry
 #include "Engine/DataTable.h"
 #include "BlasterGameState.generated.h"
 class ABlasterPlayerState;
@@ -148,12 +149,20 @@ public:
 
 	// ── 商店物品 DataTable（购买系统数据源）──
 
-	// GameMode 在 BeginPlay 时加载，服务端查表获取 Price/Category/Class
-	// 客户端可直接读取（Listen Server 同进程），无需 Replicate
+	// GameMode 在 BeginPlay 时加载，仅服务端有效（查表用 FindShopItem）
+	// Dedicated Server：客户端通过 ShopItemPrices 复制数组获取价格
 	UPROPERTY(BlueprintReadOnly, Category = "Shop")
 	class UDataTable* ShopItemTable = nullptr;
 
-	// 通过 ItemID 遍历查找 DataTable 行，返回 nullptr 表示无效 ID
+	// Dedicated Server 价格同步：服务端加载 DT 后调用 SyncShopPrices 填充，
+	// 客户端通过此数组查价格（无需访问服务端 DataTable 内存）
+	UPROPERTY(Replicated)
+	TArray<FShopItemPriceEntry> ShopItemPrices;
+
+	// 服务端调用：从 ShopItemTable 提取 ItemID+Price 填充 ShopItemPrices（触发复制）
+	void SyncShopPrices();
+
+	// 通过 ItemID 遍历查找 DataTable 行，返回 nullptr 表示无效 ID（仅服务端有效）
 	const FShopItemRow* FindShopItem(int32 ItemID) const;
 
 	// 供蓝图 BuyMenu 查询：按 ItemID 获取 Price（-1 表示无效 ID）

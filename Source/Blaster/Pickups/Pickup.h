@@ -48,10 +48,10 @@ private:
 	UStaticMeshComponent* PickupMesh;
 
 	UPROPERTY(VisibleAnywhere)
-	class UNiagaraComponent* PickupEffectComponent;
+	UObject* PickupEffectComponent; // UNiagaraComponent at runtime (UObject* avoids Server link dependency)
 
 	UPROPERTY(EditAnywhere)
-	class UNiagaraSystem* PickupEffect;
+	UObject* PickupEffect; // UNiagaraSystem at runtime (UObject* avoids Server link dependency)
 
 	FTimerHandle BindOverlapTimer;
 };
