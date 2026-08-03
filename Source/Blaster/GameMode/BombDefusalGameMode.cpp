@@ -24,11 +24,38 @@ ABombDefusalGameMode::ABombDefusalGameMode()
 {
 	// 延迟开局：手动控制角色生成和状态机启动时机
 	bDelayedStart = true;
+	// bUseSeamlessTravel 由 InitGame 按 WorldType 条件设置
 	// 必须设 PlayerStateClass，否则 GetActivePlayers() 里 Cast<ABlasterPlayerState> 失败
 	PlayerStateClass = ABlasterPlayerState::StaticClass();
 	// 必须显式设 GameStateClass：确保客户端创建的 GameState 代理是 ABlasterGameState 类型，
 	// 否则 GetGameState<ABlasterGameState>() 返回 nullptr，所有委托绑定和 OnRep 回调静默失效
 	GameStateClass = ABlasterGameState::StaticClass();
+
+	UE_LOG(LogTemp, Log, TEXT("[BombDefusalGameMode] Constructor — CDO created, bUseSeamlessTravel=%d, AimPeople=%d"),
+		bUseSeamlessTravel, AimPeople);
+}
+
+void ABombDefusalGameMode::InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage)
+{
+	Super::InitGame(MapName, Options, ErrorMessage);
+
+	const EWorldType::Type WT = GetWorld() ? GetWorld()->WorldType : EWorldType::None;
+	const ENetMode NM = GetNetMode();
+
+	// PIE 单进程下引擎禁止无缝切换（见 AGameModeBase::CanServerTravel），
+	// 仅在非 PIE（打包/独立服务器）下启用；PIE 时显式关闭以防蓝图子类覆盖
+	if (GetWorld() && GetWorld()->WorldType != EWorldType::PIE)
+	{
+		bUseSeamlessTravel = true;
+	}
+	else
+	{
+		bUseSeamlessTravel = false;
+	}
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[BombDefusalGameMode] InitGame | Map=%s | WorldType=%d | NetMode=%d | bUseSeamlessTravel=%d | Options=%s"),
+		*MapName, (int32)WT, (int32)NM, bUseSeamlessTravel, *Options);
 }
 
 void ABombDefusalGameMode::BeginPlay()
@@ -391,13 +418,31 @@ void ABombDefusalGameMode::ConcludeMatch(ELogicalTeam Winner)
 void ABombDefusalGameMode::ReturnToLobby()
 {
 	UWorld* World = GetWorld();
-	if (World)
+	if (!World)
 	{
-		// 先切到 LeavingMap 防重入：ServerTravel 是帧末延迟执行的，
-		// 若不切状态，Tick 会在后续帧重复调用 ReturnToLobby
-		SetMatchState(MatchState::LeavingMap);
-		bUseSeamlessTravel = true;
-		World->ServerTravel(LobbyMapPath);
+		UE_LOG(LogTemp, Error, TEXT("[BombDefusalGameMode] ReturnToLobby → ABORT: GetWorld() is null!"));
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[BombDefusalGameMode] ReturnToLobby | WorldType=%d | NetMode=%d | bUseSeamlessTravel=%d | MapPath=%s | MatchState=%s"),
+		(int32)World->WorldType, (int32)GetNetMode(), bUseSeamlessTravel, *LobbyMapPath, *MatchState.ToString());
+
+	// 先切到 LeavingMap 防重入：ServerTravel 是帧末延迟执行的，
+	// 若不切状态，Tick 会在后续帧重复调用 ReturnToLobby
+	SetMatchState(MatchState::LeavingMap);
+
+	const bool bTravelSuccess = World->ServerTravel(LobbyMapPath);
+	if (bTravelSuccess)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[BombDefusalGameMode] ReturnToLobby → ServerTravel SUCCESS, returning to lobby..."));
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error,
+			TEXT("[BombDefusalGameMode] ReturnToLobby → ServerTravel FAILED! MapPath=%s | bUseSeamlessTravel=%d | WorldType=%d"),
+			*LobbyMapPath, bUseSeamlessTravel, (int32)World->WorldType);
 	}
 }
 

@@ -12,6 +12,8 @@ class ABlasterPlayerState;
 class UEconomyConfig;
 struct FShopItemRow;
 class UDataTable;
+class USSR_FrameHistory;
+class USSR_RewindManager;
 
 // 存活人数变化委托：GameMode 修改 AliveCount 后广播，Widget 绑定此委托自动刷新
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAliveCountChanged, int32, AttackerAlive, int32, DefenderAlive);
@@ -31,7 +33,15 @@ class BLASTER_API ABlasterGameState : public AGameState
 {
 	GENERATED_BODY()
 public:
+	// ── AGameState 生命周期 ──
+	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaTime) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	// ── SSR 子系统访问接口 ──
+	FORCEINLINE USSR_FrameHistory*  GetSSRFrameHistory()  const { return SSR_FrameHistory; }
+	FORCEINLINE USSR_RewindManager* GetSSRRewindManager() const { return SSR_RewindManager; }
+
 	void UpdateTopScore(ABlasterPlayerState* ScoringPlayer);
 	UPROPERTY(Replicated)
 	TArray<ABlasterPlayerState*> TopScoringPlayers;
@@ -167,4 +177,11 @@ private:
 	void OnRep_TeamBWins();
 	UFUNCTION()
 	void OnRep_LastMatchWinnerLT();
+
+	// ── SSR 子系统（服务器专有，不复制） ──
+	UPROPERTY()
+	USSR_FrameHistory* SSR_FrameHistory = nullptr;
+
+	UPROPERTY()
+	USSR_RewindManager* SSR_RewindManager = nullptr;
 };

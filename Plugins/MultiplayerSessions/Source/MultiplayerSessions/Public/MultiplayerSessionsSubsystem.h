@@ -5,6 +5,10 @@
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Interfaces/OnlineSessionInterface.h"
+
+// 日志分类：跨 Menu / Subsystem 共享，在 Output Log 中用 LogMultiplayerSessions 筛选
+DECLARE_LOG_CATEGORY_EXTERN(LogMultiplayerSessions, Log, All);
+
 #include "MultiplayerSessionsSubsystem.generated.h"
 //为menu创建自定义委托来绑定回调函数
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMultiplayerOnCreateSessionComplete, bool, bWasSuccessful);

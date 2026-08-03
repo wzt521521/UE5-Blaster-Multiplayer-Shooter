@@ -4,7 +4,45 @@
 #include "BlasterGameState.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
 #include "Blaster/BlasterTypes/ShopTypes.h"
+#include "Blaster/SSR/SSR_FrameHistory.h"
+#include "Blaster/SSR/SSR_RewindManager.h"
 #include "Net/UnrealNetwork.h"
+
+// ════════════════════════════════════════════════════════════════
+// BeginPlay：服务器端初始化 SSR 子系统（帧历史录制 + 回退管理器）
+// ════════════════════════════════════════════════════════════════
+
+void ABlasterGameState::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// 启用 Tick（SSR 帧录制需要每帧执行）
+	PrimaryActorTick.bCanEverTick = true;
+
+	if (HasAuthority())
+	{
+		SSR_FrameHistory = NewObject<USSR_FrameHistory>(this);
+		SSR_FrameHistory->Initialize(this);
+
+		SSR_RewindManager = NewObject<USSR_RewindManager>(this);
+		SSR_RewindManager->Initialize(this);
+	}
+}
+
+// ════════════════════════════════════════════════════════════════
+// Tick：服务器每帧录制世界快照（必须在所有角色移动完成后）
+// GameState::Tick 在 TG_DuringPhysics 阶段，角色移动在 TG_PrePhysics
+// ════════════════════════════════════════════════════════════════
+
+void ABlasterGameState::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	if (HasAuthority() && SSR_FrameHistory)
+	{
+		SSR_FrameHistory->RecordFrame();
+	}
+}
 
 void ABlasterGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty> &OutLifetimeProps) const
 {

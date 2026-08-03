@@ -55,5 +55,5 @@ private:
 
 	int32 NumPublicConnections{4};
 	FString MatchType{TEXT("FreeForAll")};
-	FString PathToLobby{TEXT("/Game/ThirdPerson/Maps/Lobby")};
+	FString PathToLobby{TEXT("/Game/Maps/Lobby")};
 };

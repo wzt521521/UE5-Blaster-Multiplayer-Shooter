@@ -103,6 +103,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage) override;
 
 	// ── 阵营出生点选择策略 ──
 	// 覆盖 UE 原生钩子：按 PS->TeamID 筛选 ATeamPlayerStart。
