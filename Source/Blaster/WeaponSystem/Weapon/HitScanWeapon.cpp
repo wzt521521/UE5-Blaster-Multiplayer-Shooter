@@ -23,7 +23,8 @@ void AHitScanWeapon::Fire(const FVector& HitTarget)
 		WeaponTraceHit(Start, HitTarget, FireHit);
 
 		ABlasterCharacter* HitCharacter = Cast<ABlasterCharacter>(FireHit.GetActor());
-		if (HitCharacter && InstigatorController && HasAuthority())
+		// SSR 路径已处理伤害时跳过，避免重复 ApplyDamage
+		if (!bSSRHandledShot && HitCharacter && InstigatorController && HasAuthority())
 		{
 			const float DamageToCause = FireHit.BoneName.ToString() == FString("head") ? HeadShotDamage : Damage;
 			UGameplayStatics::ApplyDamage(
@@ -34,6 +35,7 @@ void AHitScanWeapon::Fire(const FVector& HitTarget)
 				UDamageType::StaticClass()
 			);
 		}
+		bSSRHandledShot = false; // 重置标记，下一发子弹重新判定
 
 		if (ImpactParticles)
 		{

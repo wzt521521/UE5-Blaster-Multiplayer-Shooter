@@ -149,6 +149,14 @@ void USSR_FrameHistory::RecordFrame()
 	HeadIndex = (HeadIndex + 1) % MaxCapacity;
 	FrameCounter++;
 	CurrentFrameNumber++;
+
+	// 前 5 帧 + 每 60 帧输出录制状态，用 Log 级别确保能看到
+	if (CurrentFrameNumber <= 5 || CurrentFrameNumber % 60 == 0)
+	{
+		const int32 Count = GetSnapshotCount();
+		UE_LOG(LogTemp, Log, TEXT("[SSR] FrameHistory | Frame #%d | Snapshot pool: %d/%d | %d players recorded"),
+			CurrentFrameNumber, Count, MaxCapacity, CurrentSnapshot.PlayerEntries.Num());
+	}
 }
 
 // ════════════════════════════════════════════════════════════════

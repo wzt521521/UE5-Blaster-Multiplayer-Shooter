@@ -65,40 +65,45 @@ void AShotgun::FireShotgun(const TArray<FVector_NetQuantize>& HitTargets)
 			}
 		}
 
-		// 聚合每个角色的总伤害：身体命中数 * Damage + 爆头命中数 * HeadShotDamage
-		TMap<ABlasterCharacter*, float> DamageMap;
-		for (auto HitPair : HitMap)
+		// SSR 路径已处理伤害时跳过（避免重复 ApplyDamage）
+		if (!bSSRHandledShot)
 		{
-			if (HitPair.Key)
+			// 聚合每个角色的总伤害：身体命中数 * Damage + 爆头命中数 * HeadShotDamage
+			TMap<ABlasterCharacter*, float> DamageMap;
+			for (auto HitPair : HitMap)
 			{
-				DamageMap.Emplace(HitPair.Key, HitPair.Value * Damage);
+				if (HitPair.Key)
+				{
+					DamageMap.Emplace(HitPair.Key, HitPair.Value * Damage);
+				}
 			}
-		}
-		for (auto HeadShotHitPair : HeadShotHitMap)
-		{
-			if (HeadShotHitPair.Key)
+			for (auto HeadShotHitPair : HeadShotHitMap)
 			{
-				if (DamageMap.Contains(HeadShotHitPair.Key))
-					DamageMap[HeadShotHitPair.Key] += HeadShotHitPair.Value * HeadShotDamage;
-				else
-					DamageMap.Emplace(HeadShotHitPair.Key, HeadShotHitPair.Value * HeadShotDamage);
+				if (HeadShotHitPair.Key)
+				{
+					if (DamageMap.Contains(HeadShotHitPair.Key))
+						DamageMap[HeadShotHitPair.Key] += HeadShotHitPair.Value * HeadShotDamage;
+					else
+						DamageMap.Emplace(HeadShotHitPair.Key, HeadShotHitPair.Value * HeadShotDamage);
+				}
 			}
-		}
 
-		// 对每个角色一次性 ApplyDamage
-		for (auto DamagePair : DamageMap)
-		{
-			if (DamagePair.Key && InstigatorController && HasAuthority())
+			// 对每个角色一次性 ApplyDamage
+			for (auto DamagePair : DamageMap)
 			{
-				UGameplayStatics::ApplyDamage(
-					DamagePair.Key,
-					DamagePair.Value,
-					InstigatorController,
-					this,
-					UDamageType::StaticClass()
-				);
+				if (DamagePair.Key && InstigatorController && HasAuthority())
+				{
+					UGameplayStatics::ApplyDamage(
+						DamagePair.Key,
+						DamagePair.Value,
+						InstigatorController,
+						this,
+						UDamageType::StaticClass()
+					);
+				}
 			}
 		}
+		bSSRHandledShot = false; // 重置标记，下一发子弹重新判定
 	}
 }
 

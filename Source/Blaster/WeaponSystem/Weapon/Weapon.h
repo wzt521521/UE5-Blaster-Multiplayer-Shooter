@@ -82,6 +82,10 @@ public:
 	UPROPERTY(EditAnywhere)
 	EFireType FireType;
 
+	// SSR 已处理本发子弹的伤害 —— CombatComponent 的 SSR 路径设为 true，
+	// HitScanWeapon::Fire() / Shotgun::FireShotgun() 检查此标记跳过 ApplyDamage
+	bool bSSRHandledShot = false;
+
 protected:
 	
 	virtual void BeginPlay() override;

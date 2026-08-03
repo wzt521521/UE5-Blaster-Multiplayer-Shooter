@@ -22,6 +22,7 @@
 #include "Blaster/WeaponSystem/Weapon/WeaponTypes.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
 #include "Blaster/Pickups/AmmoPickup.h"  // OverlappingAmmo 追踪 + ServerPickupAmmo RPC
+#include "Blaster/SSR/SSR_FrameHistory.h"  // GetRelevantBoneNames()
 
 
 ABlasterCharacter::ABlasterCharacter()
@@ -84,6 +85,9 @@ void ABlasterCharacter::BeginPlay()
 	if(HasAuthority()){
 		OnTakeAnyDamage.AddDynamic(this,&ABlasterCharacter::ReceiveDamage);
 	}
+
+	// 初始化 SSR 骨骼追踪列表（从 USSR_FrameHistory 的静态方法获取）
+	RelevantBoneNames = USSR_FrameHistory::GetRelevantBoneNames();
 }
 
 void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -842,5 +846,79 @@ void ABlasterCharacter::BombInteractReleased()
 	if (BombInteraction)
 	{
 		BombInteraction->OnInteractKeyReleased();
+	}
+}
+
+// ════════════════════════════════════════════════════════════════
+// SSR：捕获当前碰撞体快照（胶囊体 + 关键骨骼的世界空间 Transform）
+// FrameHistory 每帧调用 → 写入环形缓冲区；RewindManager 备份时调用
+// ════════════════════════════════════════════════════════════════
+
+void ABlasterCharacter::CaptureHitboxState(FSSR_PlayerFrameEntry& OutEntry)
+{
+	OutEntry.Character = this;
+
+	const UCapsuleComponent* Capsule = GetCapsuleComponent();
+	if (Capsule)
+	{
+		OutEntry.CapsuleLocation   = Capsule->GetComponentLocation();
+		OutEntry.CapsuleRotation   = Capsule->GetComponentQuat();
+		OutEntry.CapsuleHalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+		OutEntry.CapsuleRadius     = Capsule->GetScaledCapsuleRadius();
+	}
+
+	OutEntry.BoneSnapshots.Reset();
+	USkeletalMeshComponent* SkMesh = GetMesh();
+	if (!SkMesh) return;
+
+	const FTransform MeshWorldTM = SkMesh->GetComponentTransform();
+
+	for (const FName& BoneName : RelevantBoneNames)
+	{
+		const int32 BoneIndex = SkMesh->GetBoneIndex(BoneName);
+		if (BoneIndex == INDEX_NONE) continue;
+
+		// Component Space → World Space
+		const FTransform BoneCS = SkMesh->GetBoneTransform(BoneIndex);
+		const FTransform BoneWS = BoneCS * MeshWorldTM;
+
+		FSSR_BoneSnapshot BoneSnap;
+		BoneSnap.BoneName = BoneName;
+		BoneSnap.Location = BoneWS.GetLocation();
+		BoneSnap.Rotation = BoneWS.GetRotation();
+
+		OutEntry.BoneSnapshots.Add(BoneSnap);
+	}
+}
+
+// ════════════════════════════════════════════════════════════════
+// SSR：将碰撞体恢复/回退到指定状态
+// RewindManager 在回退和恢复两个阶段调用
+// 注意：用 TeleportPhysics 避免触发网络复制和物理模拟
+// ════════════════════════════════════════════════════════════════
+
+void ABlasterCharacter::ApplyHitboxState(const FSSR_PlayerFrameEntry& Entry)
+{
+	// 1. 胶囊体回退：直接操作 Collision Component，不走 SetActorTransform
+	UCapsuleComponent* Capsule = GetCapsuleComponent();
+	if (Capsule)
+	{
+		Capsule->SetWorldLocation(Entry.CapsuleLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		Capsule->SetWorldRotation(Entry.CapsuleRotation, false, nullptr, ETeleportType::TeleportPhysics);
+	}
+
+	// 2. 骨骼物理体回退：通过 FBodyInstance 直接设置碰撞体世界 Transform
+	//    LineTrace 在 ECC_Visibility 通道下检测的是 PhysicsAsset 中的 BodyInstance
+	USkeletalMeshComponent* SkMesh = GetMesh();
+	if (!SkMesh || Entry.BoneSnapshots.Num() == 0) return;
+
+	for (const FSSR_BoneSnapshot& BoneSnap : Entry.BoneSnapshots)
+	{
+		FBodyInstance* BodyInst = SkMesh->GetBodyInstance(BoneSnap.BoneName);
+		if (BodyInst)
+		{
+			const FTransform WorldTM(BoneSnap.Rotation, BoneSnap.Location);
+			BodyInst->SetBodyTransform(WorldTM, ETeleportType::TeleportPhysics);
+		}
 	}
 }

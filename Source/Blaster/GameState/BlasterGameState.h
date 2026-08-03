@@ -33,6 +33,8 @@ class BLASTER_API ABlasterGameState : public AGameState
 {
 	GENERATED_BODY()
 public:
+	ABlasterGameState();
+
 	// ── AGameState 生命周期 ──
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;

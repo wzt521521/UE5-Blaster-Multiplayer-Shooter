@@ -9,6 +9,7 @@
 #include "Blaster/BlasterTypes/CombatState.h"
 #include "Blaster/BlasterTypes/ThrowableTypes.h"
 #include "Blaster/BombMode/BombTypes.h"
+#include "Blaster/SSR/SSRTypes.h"     // FSSR_PlayerFrameEntry
 #include "BlasterCharacter.generated.h"
 class ABlasterPlayerController;
 class ABlasterPlayerState;
@@ -185,6 +186,9 @@ private:
 
 	bool bElimmed = false;//是否死亡
 
+	// SSR 骨骼追踪列表：BeginPlay 时从 USSR_FrameHistory 拷贝
+	TArray<FName> RelevantBoneNames;
+
 	FTimerHandle ElimTimer;
 	UPROPERTY(EditDefaultsOnly, Category = "Player Stats")
 	float ElimDelay = 3.f;
@@ -216,6 +220,12 @@ public:
 	class AWeapon* GetEquippedWeapon() const;
 	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 	FORCEINLINE bool IsElimmed() const { return bElimmed; }
+
+	// ── SSR 延迟补偿：碰撞体捕获/恢复 ──
+	// FrameHistory 每帧调用 CaptureHitboxState 录制快照
+	// RewindManager 在回退/恢复时调用 ApplyHitboxState 临时修改碰撞体
+	void CaptureHitboxState(FSSR_PlayerFrameEntry& OutEntry);
+	void ApplyHitboxState(const FSSR_PlayerFrameEntry& Entry);
 	FORCEINLINE float GetHealth() const { return Health; }
 	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
 	// ↑ 供 BlasterPlayerController::OnPossess 拉取血量，复活时重置 HUD 血条用
