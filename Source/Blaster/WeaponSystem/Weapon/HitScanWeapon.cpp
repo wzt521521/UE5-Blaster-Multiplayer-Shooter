@@ -19,6 +19,12 @@ void AHitScanWeapon::Fire(const FVector& HitTarget)
 		FTransform SocketTransform = MuzzleFlashSocket->GetSocketTransform(GetWeaponMesh());
 		FVector Start = SocketTransform.GetLocation();
 
+		// 诊断日志：对比客户端 vs 服务器枪口位置
+		UE_LOG(LogTemp, Warning, TEXT("[FIRE] %s | Muzzle=(%.0f,%.0f,%.0f) | HitTarget=(%.0f,%.0f,%.0f)"),
+			HasAuthority() ? TEXT("SERVER") : TEXT("CLIENT"),
+			Start.X, Start.Y, Start.Z,
+			HitTarget.X, HitTarget.Y, HitTarget.Z);
+
 		FHitResult FireHit;
 		WeaponTraceHit(Start, HitTarget, FireHit);
 

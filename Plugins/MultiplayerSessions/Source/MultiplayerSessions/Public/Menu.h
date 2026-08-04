@@ -16,8 +16,9 @@ class MULTIPLAYERSESSIONS_API UMenu : public UUserWidget
 {
 	GENERATED_BODY()
 public:
+	// bIsDS: true → Dedicated Server 模式，false → Listen Server（?listen）
 	UFUNCTION(BlueprintCallable)
-	void MenuSetup(int32 NumberOfPublicConnections = 4,FString TypeOfMatch = FString(TEXT("FreeForAll")),FString LobbyPath = FString(TEXT("/Game/ThirdPerson/Maps/Lobby")));
+	void MenuSetup(int32 NumberOfPublicConnections = 4,FString TypeOfMatch = FString(TEXT("FreeForAll")),FString LobbyPath = FString(TEXT("/Game/ThirdPerson/Maps/Lobby")), bool bIsDS = true);
 
 protected:
 	virtual bool Initialize() override;
@@ -56,4 +57,5 @@ private:
 	int32 NumPublicConnections{4};
 	FString MatchType{TEXT("FreeForAll")};
 	FString PathToLobby{TEXT("/Game/Maps/Lobby")};
+	bool bIsDedicatedServer = true;  // 默认 Dedicated Server 模式
 };

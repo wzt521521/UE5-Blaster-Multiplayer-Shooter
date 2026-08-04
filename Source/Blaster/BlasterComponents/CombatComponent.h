@@ -102,14 +102,15 @@ protected:
 	UFUNCTION()
 	void OnRep_CombatState();
 
+	// ClientMuzzle：客户端枪口位置，用于 SSR 回退射线（避免服务端动画精度不足导致射线偏差）
 	UFUNCTION(Server, Reliable)
-	void ServerFire(const FVector_NetQuantize& TraceHitTarget, float FireDelay, float ClientShotTime);
+	void ServerFire(const FVector_NetQuantize& TraceHitTarget, float FireDelay, float ClientShotTime, const FVector_NetQuantize& ClientMuzzle);
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastFire(const FVector_NetQuantize& TraceHitTarget);
 
 	UFUNCTION(Server, Reliable)
-	void ServerShotgunFire(const TArray<FVector_NetQuantize>& TraceHitTargets, float FireDelay, float ClientShotTime);
+	void ServerShotgunFire(const TArray<FVector_NetQuantize>& TraceHitTargets, float FireDelay, float ClientShotTime, const FVector_NetQuantize& ClientMuzzle);
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastShotgunFire(const TArray<FVector_NetQuantize>& TraceHitTargets);

@@ -58,9 +58,14 @@ ABlasterCharacter::ABlasterCharacter()
 
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
+	// 胶囊体必须阻断 Visibility 射线——骨骼物理体之间有缝隙，胶囊体作为兜底确保射线不会穿透角色
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Visibility, ECollisionResponse::ECR_Block);
 	GetMesh()->SetCollisionObjectType(ECC_SkeletalMesh);
 	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
 	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Visibility, ECollisionResponse::ECR_Block);
+	// DS 上无渲染，默认 OnlyTickPoseWhenRendered 会导致动画不更新，武器 Socket 位置错误
+	// 设为 AlwaysTick 确保服务器端骨骼姿态与客户端一致，SSR 射线才准确
+	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 	GetCharacterMovement()->RotationRate = FRotator(0.f, 0.f, 850.f);
 	TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 
@@ -873,6 +878,10 @@ void ABlasterCharacter::CaptureHitboxState(FSSR_PlayerFrameEntry& OutEntry)
 
 	const FTransform MeshWorldTM = SkMesh->GetComponentTransform();
 
+	// 保存 Mesh Component 世界 Transform（恢复时直接移动 Component 来带动骨骼物理体）
+	OutEntry.MeshWorldLocation = MeshWorldTM.GetLocation();
+	OutEntry.MeshWorldRotation = MeshWorldTM.GetRotation();
+
 	for (const FName& BoneName : RelevantBoneNames)
 	{
 		const int32 BoneIndex = SkMesh->GetBoneIndex(BoneName);
@@ -907,9 +916,17 @@ void ABlasterCharacter::ApplyHitboxState(const FSSR_PlayerFrameEntry& Entry)
 		Capsule->SetWorldRotation(Entry.CapsuleRotation, false, nullptr, ETeleportType::TeleportPhysics);
 	}
 
-	// 2. 骨骼物理体回退：通过 FBodyInstance 直接设置碰撞体世界 Transform
-	//    LineTrace 在 ECC_Visibility 通道下检测的是 PhysicsAsset 中的 BodyInstance
+	// 2. SkeletalMeshComponent 世界位置回退
+	//    直接移动 Mesh Component 到历史世界位置，带动所有骨骼物理体一起移动
+	//    SetBodyTransform 对 PhysX kinematic articulation link 不生效，必须通过 Component 级别移动
 	USkeletalMeshComponent* SkMesh = GetMesh();
+	if (SkMesh)
+	{
+		SkMesh->SetWorldLocation(Entry.MeshWorldLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		SkMesh->SetWorldRotation(Entry.MeshWorldRotation, false, nullptr, ETeleportType::TeleportPhysics);
+	}
+
+	// 3. 骨骼物理体微调：逐个设置 BodyInstance 到历史位置（best-effort 精度修正）
 	if (!SkMesh || Entry.BoneSnapshots.Num() == 0) return;
 
 	for (const FSSR_BoneSnapshot& BoneSnap : Entry.BoneSnapshots)

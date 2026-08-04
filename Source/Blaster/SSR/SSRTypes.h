@@ -48,6 +48,14 @@ struct FSSR_PlayerFrameEntry
 	UPROPERTY()
 	float CapsuleRadius = 0.f;
 
+	// SkeletalMeshComponent 世界 Transform
+	// 恢复时直接移动 Mesh Component 来带动所有骨骼物理体（SetBodyTransform 对 kinematic articulation link 不生效）
+	UPROPERTY()
+	FVector MeshWorldLocation = FVector::ZeroVector;
+
+	UPROPERTY()
+	FQuat MeshWorldRotation = FQuat::Identity;
+
 	// 关键骨骼快照（head, spine, pelvis, limbs 等 ~14 个骨骼）
 	UPROPERTY()
 	TArray<FSSR_BoneSnapshot> BoneSnapshots;

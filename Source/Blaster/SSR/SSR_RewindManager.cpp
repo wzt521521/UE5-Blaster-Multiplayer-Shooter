@@ -1,4 +1,6 @@
-// Blaster SSR：回退管理器实现（Phase 1 骨架，核心算法在 Phase 3 填充）
+// Blaster SSR：纯数学射线相交判定（HitScan + 霰弹枪共用）
+// 不操作 PhysX 碰撞体——直接用 FrameHistory 中的 Capsule/Bone 快照数据
+// 做射线-胶囊体/球体数学相交测试，100% 确定性
 
 #include "SSR_RewindManager.h"
 #include "SSR_FrameHistory.h"
@@ -11,16 +13,216 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
-#include "DrawDebugHelpers.h"  // DrawDebugLine / DrawDebugSphere (ssr.DrawDebug)
+#include "DrawDebugHelpers.h"
 
 // ════════════════════════════════════════════════════════════════
-// 初始化：缓存 GameState 引用
+// 纯数学相交辅助函数
+// ════════════════════════════════════════════════════════════════
+
+// 骨骼的近似碰撞半径（用于 head / pelvis / spine 等骨骼的射线-球体判定）
+static constexpr float BONE_RADIUS = 12.f;
+
+// 射线-球体相交：返回沿射线方向的参数 t（RayDir 必须是单位向量），无交点返回 -1
+static float RaySphereIntersect(const FVector& RayOrigin, const FVector& RayDir,
+	const FVector& SphereCenter, float SphereRadius)
+{
+	const FVector OC = RayOrigin - SphereCenter;
+	const float b = 2.f * FVector::DotProduct(RayDir, OC);
+	const float c = OC.SizeSquared() - SphereRadius * SphereRadius;
+	const float Disc = b * b - 4.f * c;
+	if (Disc < 0.f) return -1.f;
+
+	const float t = (-b - FMath::Sqrt(Disc)) * 0.5f;
+	return t > 0.f ? t : -1.f;
+}
+
+// 射线-胶囊体相交：胶囊体中心 C、半高 H（从中心到两端）、半径 R
+// 将射线变换到胶囊体局部空间（胶囊体沿 Z 轴），分别检测圆柱段 + 两端半球
+// 返回射线参数 t（RayDir 必须是单位向量），无交点返回 -1
+static float RayCapsuleIntersect(const FVector& RayOrigin, const FVector& RayDir,
+	const FVector& CapsuleCenter, const FQuat& CapsuleRot,
+	float CapsuleHalfHeight, float CapsuleRadius)
+{
+	const FVector O = CapsuleRot.UnrotateVector(RayOrigin - CapsuleCenter);
+	const FVector D = CapsuleRot.UnrotateVector(RayDir);
+
+	const float H = CapsuleHalfHeight;
+	const float R = CapsuleRadius;
+	float BestT = TNumericLimits<float>::Max();
+	bool bHit = false;
+
+	const float aXY = D.X * D.X + D.Y * D.Y;
+
+	// ── 圆柱段：|z| ≤ H-R，x² + y² = R² ──
+	if (aXY > KINDA_SMALL_NUMBER)
+	{
+		const float b = 2.f * (O.X * D.X + O.Y * D.Y);
+		const float c = O.X * O.X + O.Y * O.Y - R * R;
+		const float Disc = b * b - 4.f * aXY * c;
+
+		if (Disc >= 0.f)
+		{
+			const float SqrtDisc = FMath::Sqrt(Disc);
+			for (float t : { (-b - SqrtDisc) / (2.f * aXY), (-b + SqrtDisc) / (2.f * aXY) })
+			{
+				if (t <= 0.f) continue;
+				const float Z = O.Z + t * D.Z;
+				if (Z >= -(H - R) && Z <= (H - R))
+				{
+					BestT = FMath::Min(BestT, t);
+					bHit = true;
+				}
+			}
+		}
+	}
+	else
+	{
+		const float DistXY = FMath::Sqrt(O.X * O.X + O.Y * O.Y);
+		if (DistXY <= R)
+		{
+			const float ZEntry = FMath::Max(O.Z, -(H - R));
+			if (ZEntry <= H - R)
+			{
+				const float t = (ZEntry - O.Z) / D.Z;
+				if (t > 0.f) { BestT = FMath::Min(BestT, t); bHit = true; }
+			}
+		}
+	}
+
+	// ── 底端半球：中心 (0, 0, -(H-R))，半径 R ──
+	{
+		const float t = RaySphereIntersect(O, D, FVector(0.f, 0.f, -(H - R)), R);
+		if (t > 0.f && (O.Z + t * D.Z) < -(H - R))
+			{ BestT = FMath::Min(BestT, t); bHit = true; }
+	}
+
+	// ── 顶端半球：中心 (0, 0, H-R)，半径 R ──
+	{
+		const float t = RaySphereIntersect(O, D, FVector(0.f, 0.f, H - R), R);
+		if (t > 0.f && (O.Z + t * D.Z) > H - R)
+			{ BestT = FMath::Min(BestT, t); bHit = true; }
+	}
+
+	return bHit ? BestT : -1.f;
+}
+
+// ════════════════════════════════════════════════════════════════
+// 单条射线的历史命中检测（HitScan 和霰弹枪共用）
+// 遍历历史快照中所有玩家，取 t 最小的胶囊体/骨骼命中
+// ════════════════════════════════════════════════════════════════
+
+static FSSR_TraceResult MathTraceSingleRay(
+	const FVector& TraceStart,
+	const FVector& TraceEnd,
+	const FSSR_FrameSnapshot& HistoricalFrame,
+	ABlasterCharacter* Shooter)
+{
+	FSSR_TraceResult Result;
+	const FVector RayDir = (TraceEnd - TraceStart).GetSafeNormal();
+	const float MaxDist = (TraceEnd - TraceStart).Size();
+
+	float BestT = TNumericLimits<float>::Max();
+	ABlasterCharacter* BestChar = nullptr;
+	FName BestBone = NAME_None;
+
+	for (const FSSR_PlayerFrameEntry& Entry : HistoricalFrame.PlayerEntries)
+	{
+		if (!Entry.Character.IsValid()) continue;
+		ABlasterCharacter* OtherChar = Entry.Character.Get();
+		if (OtherChar == Shooter || OtherChar->IsElimmed()) continue;
+
+		// 诊断
+		UE_LOG(LogTemp, Warning, TEXT("[SSR]   MATH | Target=%s | HistCaps=(%.0f,%.0f,%.0f) H=%.0f R=%.0f | Bones=%d | RayStart=(%.0f,%.0f,%.0f) | RayDir=(%.3f,%.3f,%.3f)"),
+			*GetNameSafe(OtherChar),
+			Entry.CapsuleLocation.X, Entry.CapsuleLocation.Y, Entry.CapsuleLocation.Z,
+			Entry.CapsuleHalfHeight, Entry.CapsuleRadius,
+			Entry.BoneSnapshots.Num(),
+			TraceStart.X, TraceStart.Y, TraceStart.Z,
+			RayDir.X, RayDir.Y, RayDir.Z);
+
+		// 1. 骨骼球体命中（用于判定爆头/肢体）
+		for (const FSSR_BoneSnapshot& Bone : Entry.BoneSnapshots)
+		{
+			const float t = RaySphereIntersect(TraceStart, RayDir, Bone.Location, BONE_RADIUS);
+			if (t > 0.f && t <= MaxDist && t < BestT)
+			{
+				BestT = t;
+				BestChar = OtherChar;
+				BestBone = Bone.BoneName;
+			}
+		}
+
+		// 2. 胶囊体命中（覆盖整个身体，兜底）
+		const float tCapsule = RayCapsuleIntersect(TraceStart, RayDir,
+			Entry.CapsuleLocation, Entry.CapsuleRotation,
+			Entry.CapsuleHalfHeight, Entry.CapsuleRadius);
+		if (tCapsule > 0.f && tCapsule <= MaxDist && tCapsule < BestT)
+		{
+			BestT = tCapsule;
+			BestChar = OtherChar;
+			BestBone = NAME_None;
+		}
+	}
+
+	if (BestChar)
+	{
+		Result.bHit = true;
+		Result.ImpactPoint = TraceStart + RayDir * BestT;
+		Result.BoneName = BestBone;
+		Result.HitActor = BestChar;
+
+		UE_LOG(LogTemp, Log, TEXT("[SSR] ✓ MATH HIT | Target=%s | Bone=%s | Impact=(%.0f, %.0f, %.0f) | t=%.1f"),
+			*GetNameSafe(BestChar),
+			BestBone.IsNone() ? TEXT("body") : *BestBone.ToString(),
+			Result.ImpactPoint.X, Result.ImpactPoint.Y, Result.ImpactPoint.Z,
+			BestT);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[SSR] ✗ MATH miss | Trace=(%.0f,%.0f,%.0f)->(%.0f,%.0f,%.0f) | %d entries checked"),
+			TraceStart.X, TraceStart.Y, TraceStart.Z,
+			TraceEnd.X, TraceEnd.Y, TraceEnd.Z,
+			HistoricalFrame.PlayerEntries.Num());
+	}
+
+	return Result;
+}
+
+// ════════════════════════════════════════════════════════════════
+// 初始化
 // ════════════════════════════════════════════════════════════════
 
 void USSR_RewindManager::Initialize(ABlasterGameState* InGameState)
 {
 	GameState = InGameState;
 	UE_LOG(LogTemp, Log, TEXT("[SSR] RewindManager initialized"));
+}
+
+// ════════════════════════════════════════════════════════════════
+// 时间计算 + 历史帧查找（HitScan 和霰弹枪共用）
+// ════════════════════════════════════════════════════════════════
+
+static const FSSR_FrameSnapshot* FindRewindFrame(
+	UWorld* World, USSR_FrameHistory* FrameHistory,
+	float ClientShotServerTime, FStringView CallerName)
+{
+	const double ServerNow = World->GetTimeSeconds();
+	double OneWayDelay = ServerNow - ClientShotServerTime;
+	OneWayDelay = FMath::Clamp(OneWayDelay, 0.0, (double)CVarSSRMaxPingCompensation.GetValueOnGameThread());
+
+	UE_LOG(LogTemp, Verbose, TEXT("[SSR] %.*s | ServerNow=%.3f | ClientTime=%.3f | ClampedDelay=%.1fms"),
+		CallerName.Len(), CallerName.GetData(), ServerNow, ClientShotServerTime, OneWayDelay * 1000.0);
+
+	const double RewindTargetTime = ServerNow - OneWayDelay;
+	const FSSR_FrameSnapshot* Frame = FrameHistory->FindSnapshot(RewindTargetTime);
+
+	if (!Frame)
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("[SSR] → No historical snapshot for t=%.3f (count=%d)"),
+			RewindTargetTime, FrameHistory->GetSnapshotCount());
+	}
+
+	return Frame;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -44,56 +246,29 @@ FSSR_TraceResult USSR_RewindManager::ProcessHitScanShot(
 	USSR_FrameHistory* FrameHistory = GameState->GetSSRFrameHistory();
 	if (!FrameHistory) return Result;
 
-	// 1. 计算回退目标时间
-	const double ServerNow = World->GetTimeSeconds();
-	double OneWayDelay = ServerNow - ClientShotServerTime;
+	const FSSR_FrameSnapshot* HistoricalFrame = FindRewindFrame(World, FrameHistory, ClientShotServerTime, TEXT("ProcessHitScan"));
+	if (!HistoricalFrame) return Result;
 
-	// 限制最大补偿范围（防作弊 + 极端 Ping 下的兜底）
-	const float MaxComp = CVarSSRMaxPingCompensation.GetValueOnGameThread();
-	OneWayDelay = FMath::Clamp(OneWayDelay, 0.0, (double)MaxComp);
-
-	UE_LOG(LogTemp, Verbose, TEXT("[SSR] ProcessHitScan | Shooter=%s | ServerNow=%.3f | ClientTime=%.3f | RawDelay=%.1fms | ClampedDelay=%.1fms"),
-		*GetNameSafe(Shooter), ServerNow, ClientShotServerTime, (ServerNow - ClientShotServerTime) * 1000.0, OneWayDelay * 1000.0);
-
-	// 延迟极小时直接做当前帧射线（听服主机 / 极低 Ping）
-	if (OneWayDelay < 0.002)
-	{
-		UE_LOG(LogTemp, Verbose, TEXT("[SSR] → Delay too small, using current-frame trace"));
-		FVector End = TraceStart + (HitTarget - TraceStart) * 1.25f;
-		FHitResult CurrentHit;
-		World->LineTraceSingleByChannel(CurrentHit, TraceStart, End, ECC_Visibility);
-		if (ABlasterCharacter* HitChar = Cast<ABlasterCharacter>(CurrentHit.GetActor()))
-		{
-			Result.bHit = true;
-			Result.ImpactPoint = CurrentHit.ImpactPoint;
-			Result.BoneName = CurrentHit.BoneName;
-			Result.HitActor = HitChar;
-		}
-		return Result;
-	}
-
-	const double RewindTargetTime = ServerNow - OneWayDelay;
-
-	// 2. 查找历史快照
-	const FSSR_FrameSnapshot* HistoricalFrame = FrameHistory->FindSnapshot(RewindTargetTime);
-	if (!HistoricalFrame)
-	{
-		// 无可用历史（刚开局等）→ 不做回退
-		UE_LOG(LogTemp, Verbose, TEXT("[SSR] → No historical snapshot available for t=%.3f (history count=%d)"),
-			RewindTargetTime, FrameHistory->GetSnapshotCount());
-		return Result;
-	}
-
-	UE_LOG(LogTemp, Verbose, TEXT("[SSR] → Rewind to frame #%d (t=%.3f), snapshot has %d player entries"),
+	UE_LOG(LogTemp, Verbose, TEXT("[SSR] → Rewind to frame #%d (t=%.3f), %d player entries"),
 		HistoricalFrame->FrameNumber, HistoricalFrame->Timestamp, HistoricalFrame->PlayerEntries.Num());
 
-	// 3. 执行回退射线
-	return PerformRewindTrace(Shooter, TraceStart, HitTarget, *HistoricalFrame);
+	const FVector TraceEnd = TraceStart + (HitTarget - TraceStart) * 1.25f;
+	Result = MathTraceSingleRay(TraceStart, TraceEnd, *HistoricalFrame, Shooter);
+
+	// Debug 可视化
+	if (CVarSSRDrawDebug.GetValueOnGameThread() > 0)
+	{
+		const FColor RayColor = Result.bHit ? FColor::Green : FColor::Red;
+		DrawDebugLine(World, TraceStart, TraceEnd, RayColor, false, 2.f, 0, 1.f);
+		if (Result.bHit)
+			DrawDebugSphere(World, Result.ImpactPoint, 12.f, 12, FColor::Green, false, 2.f);
+	}
+
+	return Result;
 }
 
 // ════════════════════════════════════════════════════════════════
-// 霰弹枪多弹丸 SSR 处理
-// 关键：备份/恢复只做一次（所有弹丸共用同一个历史帧）
+// 霰弹枪多弹丸 SSR 处理（每颗弹丸独立数学判定）
 // ════════════════════════════════════════════════════════════════
 
 TArray<FSSR_TraceResult> USSR_RewindManager::ProcessShotgunPellets(
@@ -113,119 +288,27 @@ TArray<FSSR_TraceResult> USSR_RewindManager::ProcessShotgunPellets(
 	USSR_FrameHistory* FrameHistory = GameState->GetSSRFrameHistory();
 	if (!FrameHistory) return Results;
 
-	// 1. 计算回退目标时间（与 HitScan 相同逻辑）
-	const double ServerNow = World->GetTimeSeconds();
-	double OneWayDelay = ServerNow - ClientShotServerTime;
-	const float MaxComp = CVarSSRMaxPingCompensation.GetValueOnGameThread();
-	OneWayDelay = FMath::Clamp(OneWayDelay, 0.0, (double)MaxComp);
-
-	// 延迟极小：直接当前帧射线（不走回退）
-	if (OneWayDelay < 0.002)
-	{
-		for (const FVector& HitTarget : HitTargets)
-		{
-			FSSR_TraceResult PelletResult;
-			FVector End = TraceStart + (HitTarget - TraceStart) * 1.25f;
-			FHitResult CurrentHit;
-			World->LineTraceSingleByChannel(CurrentHit, TraceStart, End, ECC_Visibility);
-			if (ABlasterCharacter* HitChar = Cast<ABlasterCharacter>(CurrentHit.GetActor()))
-			{
-				PelletResult.bHit = true;
-				PelletResult.ImpactPoint = CurrentHit.ImpactPoint;
-				PelletResult.BoneName = CurrentHit.BoneName;
-				PelletResult.HitActor = HitChar;
-			}
-			Results.Add(PelletResult);
-		}
-		return Results;
-	}
-
-	const double RewindTargetTime = ServerNow - OneWayDelay;
-
-	// 2. 查找历史快照
-	const FSSR_FrameSnapshot* HistoricalFrame = FrameHistory->FindSnapshot(RewindTargetTime);
+	const FSSR_FrameSnapshot* HistoricalFrame = FindRewindFrame(World, FrameHistory, ClientShotServerTime, TEXT("Shotgun"));
 	if (!HistoricalFrame) return Results;
 
-	UE_LOG(LogTemp, Verbose, TEXT("[SSR] Shotgun | Rewind to frame #%d | %d pellets | %d history entries | Delay=%.1fms"),
-		HistoricalFrame->FrameNumber, HitTargets.Num(), HistoricalFrame->PlayerEntries.Num(), OneWayDelay * 1000.0);
+	UE_LOG(LogTemp, Verbose, TEXT("[SSR] Shotgun | frame #%d | %d pellets | %d history entries"),
+		HistoricalFrame->FrameNumber, HitTargets.Num(), HistoricalFrame->PlayerEntries.Num());
 
-	// 3. 备份所有其他角色当前状态（一次性）
-	TArray<FCharacterStateBackup> Backups;
-	SaveAllCharacterStates(Backups, Shooter);
-
-	UE_LOG(LogTemp, Verbose, TEXT("[SSR] Shotgun | Backed up %d characters"), Backups.Num());
-
-	// RAII：无论函数怎么退出，碰撞体一定会恢复
-	ON_SCOPE_EXIT
-	{
-		RestoreAllCharacterStates(Backups);
-		UE_LOG(LogTemp, Verbose, TEXT("[SSR] Shotgun | Restored %d characters"), Backups.Num());
-	};
-
-	// 4. 回退到历史帧：遍历快照中每个角色 → 应用历史碰撞体
-	int32 ShotgunRewound = 0;
-	for (const FSSR_PlayerFrameEntry& Entry : HistoricalFrame->PlayerEntries)
-	{
-		if (!Entry.Character.IsValid()) continue;
-		ABlasterCharacter* OtherChar = Entry.Character.Get();
-		if (OtherChar == Shooter || OtherChar->IsElimmed()) continue;
-		ApplyHistoricalEntry(OtherChar, Entry);
-		ShotgunRewound++;
-	}
-
-	UE_LOG(LogTemp, Verbose, TEXT("[SSR] Shotgun | Rewound %d targets to historical frame"), ShotgunRewound);
-
-	// 5. 对每个弹丸独立做射线（共享同一个回退后的世界状态）
-	const bool bValidateCurrent = CVarSSRValidateWithCurrent.GetValueOnGameThread() != 0;
+	int32 HitCount = 0;
 	for (const FVector& HitTarget : HitTargets)
 	{
 		const FVector TraceEnd = TraceStart + (HitTarget - TraceStart) * 1.25f;
-
-		FHitResult RewindHit;
-		World->LineTraceSingleByChannel(RewindHit, TraceStart, TraceEnd, ECC_Visibility);
-
-		FSSR_TraceResult PelletResult;
-		if (ABlasterCharacter* HitChar = Cast<ABlasterCharacter>(RewindHit.GetActor()))
-		{
-			PelletResult.bHit = true;
-			PelletResult.ImpactPoint = RewindHit.ImpactPoint;
-			PelletResult.BoneName = RewindHit.BoneName;
-			PelletResult.HitActor = HitChar;
-		}
-
-		// 双保险：如果回退未命中，检查当前帧（在恢复之后进行）
-		if (!PelletResult.bHit && bValidateCurrent)
-		{
-			// 临时恢复 → 在当前帧做射线 → 再回退回去（后续弹丸还需要回退状态）
-			RestoreAllCharacterStates(Backups);
-			FHitResult CurrentHit;
-			World->LineTraceSingleByChannel(CurrentHit, TraceStart, TraceEnd, ECC_Visibility);
-			if (ABlasterCharacter* HitChar = Cast<ABlasterCharacter>(CurrentHit.GetActor()))
-			{
-				PelletResult.bHit = true;
-				PelletResult.ImpactPoint = CurrentHit.ImpactPoint;
-				PelletResult.BoneName = CurrentHit.BoneName;
-				PelletResult.HitActor = HitChar;
-			}
-			// 重新回退（为下一个弹丸恢复历史碰撞体状态）
-			for (const FSSR_PlayerFrameEntry& Entry : HistoricalFrame->PlayerEntries)
-			{
-				if (!Entry.Character.IsValid()) continue;
-				ABlasterCharacter* OtherChar = Entry.Character.Get();
-				if (OtherChar == Shooter || OtherChar->IsElimmed()) continue;
-				ApplyHistoricalEntry(OtherChar, Entry);
-			}
-		}
-
+		FSSR_TraceResult PelletResult = MathTraceSingleRay(TraceStart, TraceEnd, *HistoricalFrame, Shooter);
+		if (PelletResult.bHit) HitCount++;
 		Results.Add(PelletResult);
 	}
 
-	// ON_SCOPE_EXIT 自动恢复碰撞体
+	UE_LOG(LogTemp, Log, TEXT("[SSR] Shotgun result | %d/%d pellets hit"), HitCount, HitTargets.Num());
 	return Results;
 }
 
 // ════════════════════════════════════════════════════════════════
-// SSR 命中伤害应用：根据命中骨骼判定爆头/身体伤害
+// SSR 命中伤害应用
 // ════════════════════════════════════════════════════════════════
 
 bool USSR_RewindManager::ApplySSRDamage(
@@ -238,7 +321,6 @@ bool USSR_RewindManager::ApplySSRDamage(
 	ABlasterCharacter* HitChar = Cast<ABlasterCharacter>(Result.HitActor.Get());
 	if (!HitChar) return false;
 
-	// 根据命中骨骼判定伤害类型
 	const bool bHeadShot = (Result.BoneName == FName("head"));
 	const float Damage = bHeadShot ? Weapon->GetHeadShotDamage() : Weapon->GetDamage();
 
@@ -251,166 +333,7 @@ bool USSR_RewindManager::ApplySSRDamage(
 
 	AController* InstigatorController = Shooter->GetController();
 	UGameplayStatics::ApplyDamage(
-		HitChar,
-		Damage,
-		InstigatorController,
-		Weapon,
-		UDamageType::StaticClass()
-	);
+		HitChar, Damage, InstigatorController, Weapon, UDamageType::StaticClass());
 
 	return true;
-}
-
-// ════════════════════════════════════════════════════════════════
-// 核心回退算法：保存当前 → 回退到历史 → 执行射线 → 双保险 → 恢复
-// ════════════════════════════════════════════════════════════════
-
-FSSR_TraceResult USSR_RewindManager::PerformRewindTrace(
-	ABlasterCharacter* Shooter,
-	const FVector& TraceStart,
-	const FVector& HitTarget,
-	const FSSR_FrameSnapshot& HistoricalFrame)
-{
-	FSSR_TraceResult Result;
-	UWorld* World = GetWorld();
-	if (!World) return Result;
-
-	// 1. 备份所有其他角色的当前碰撞体状态
-	TArray<FCharacterStateBackup> Backups;
-	SaveAllCharacterStates(Backups, Shooter);
-
-	UE_LOG(LogTemp, Verbose, TEXT("[SSR] → Backed up %d characters (current state)"), Backups.Num());
-
-	// RAII：无论函数如何退出（return / 异常），碰撞体一定会恢复
-	ON_SCOPE_EXIT
-	{
-		RestoreAllCharacterStates(Backups);
-		UE_LOG(LogTemp, Verbose, TEXT("[SSR] → Restored %d characters to current state"), Backups.Num());
-	};
-
-	// 2. 回退到历史帧：遍历历史快照中的每个玩家，应用历史碰撞体
-	int32 RewoundCount = 0;
-	for (const FSSR_PlayerFrameEntry& Entry : HistoricalFrame.PlayerEntries)
-	{
-		if (!Entry.Character.IsValid()) continue;
-		ABlasterCharacter* OtherChar = Entry.Character.Get();
-		// 跳过射击者自己（只回退目标角色）和已死亡角色
-		if (OtherChar == Shooter || OtherChar->IsElimmed()) continue;
-		ApplyHistoricalEntry(OtherChar, Entry);
-		RewoundCount++;
-	}
-
-	UE_LOG(LogTemp, Verbose, TEXT("[SSR] → Applied historical hitbox to %d targets"), RewoundCount);
-
-	// 3. 执行回退射线（从枪口到客户端瞄准点）
-	//    此时所有目标角色的碰撞体已在历史位置，射线判定的是"客户端看到的世界"
-	const FVector TraceEnd = TraceStart + (HitTarget - TraceStart) * 1.25f;
-	FHitResult RewindHit;
-	World->LineTraceSingleByChannel(RewindHit, TraceStart, TraceEnd, ECC_Visibility);
-
-	bool bRewindHit = false;
-	if (ABlasterCharacter* HitChar = Cast<ABlasterCharacter>(RewindHit.GetActor()))
-	{
-		bRewindHit = true;
-		Result.bHit = true;
-		Result.ImpactPoint = RewindHit.ImpactPoint;
-		Result.BoneName = RewindHit.BoneName;
-		Result.HitActor = HitChar;
-
-		UE_LOG(LogTemp, Log, TEXT("[SSR] ✓ REWIND HIT | Target=%s | Bone=%s | Impact=(%.0f, %.0f, %.0f)"),
-			*GetNameSafe(HitChar), *Result.BoneName.ToString(),
-			Result.ImpactPoint.X, Result.ImpactPoint.Y, Result.ImpactPoint.Z);
-	}
-	else
-	{
-		UE_LOG(LogTemp, Verbose, TEXT("[SSR] ✗ Rewind miss"));
-	}
-
-	// 4. 双保险：当前帧判定（仅当回退未命中时）
-	const bool bValidateCurrent = CVarSSRValidateWithCurrent.GetValueOnGameThread() != 0;
-	if (!bRewindHit && bValidateCurrent)
-	{
-		// 恢复碰撞体 → 在当前帧做射线
-		RestoreAllCharacterStates(Backups);
-
-		FHitResult CurrentHit;
-		World->LineTraceSingleByChannel(CurrentHit, TraceStart, TraceEnd, ECC_Visibility);
-
-		if (ABlasterCharacter* HitChar = Cast<ABlasterCharacter>(CurrentHit.GetActor()))
-		{
-			Result.bHit = true;
-			Result.ImpactPoint = CurrentHit.ImpactPoint;
-			Result.BoneName = CurrentHit.BoneName;
-			Result.HitActor = HitChar;
-
-			UE_LOG(LogTemp, Log, TEXT("[SSR] ✓ CURRENT HIT (fallback) | Target=%s | Bone=%s | Impact=(%.0f, %.0f, %.0f)"),
-				*GetNameSafe(HitChar), *Result.BoneName.ToString(),
-				Result.ImpactPoint.X, Result.ImpactPoint.Y, Result.ImpactPoint.Z);
-		}
-		else
-		{
-			UE_LOG(LogTemp, Verbose, TEXT("[SSR] ✗ Current-frame also miss → shot completely missed"));
-		}
-
-		// ON_SCOPE_EXIT 会再次调用 RestoreAllCharacterStates，但此时已经恢复了，无害
-	}
-
-	// 5. Debug 可视化（ssr.DrawDebug 1 绘制回退射线）
-	if (CVarSSRDrawDebug.GetValueOnGameThread() > 0)
-	{
-		const FColor RayColor = Result.bHit ? FColor::Green : FColor::Red;
-		DrawDebugLine(World, TraceStart, TraceEnd, RayColor, false, 2.f, 0, 1.f);
-		if (Result.bHit)
-		{
-			DrawDebugSphere(World, Result.ImpactPoint, 12.f, 12, FColor::Green, false, 2.f);
-		}
-	}
-
-	return Result;
-}
-
-// ════════════════════════════════════════════════════════════════
-// Phase 2 实现：批量保存/恢复碰撞体状态
-// ════════════════════════════════════════════════════════════════
-
-void USSR_RewindManager::SaveAllCharacterStates(
-	TArray<FCharacterStateBackup>& OutBackups,
-	ABlasterCharacter* ExcludeShooter)
-{
-	UWorld* World = GetWorld();
-	if (!World) return;
-
-	for (auto It = World->GetPlayerControllerIterator(); It; ++It)
-	{
-		APlayerController* PC = It->Get();
-		if (!PC) continue;
-
-		ABlasterCharacter* OtherChar = Cast<ABlasterCharacter>(PC->GetPawn());
-		if (!OtherChar || OtherChar == ExcludeShooter || OtherChar->IsElimmed()) continue;
-
-		FCharacterStateBackup& Backup = OutBackups.AddDefaulted_GetRef();
-		Backup.Character = OtherChar;
-		OtherChar->CaptureHitboxState(Backup.SavedEntry);
-	}
-}
-
-void USSR_RewindManager::RestoreAllCharacterStates(const TArray<FCharacterStateBackup>& Backups)
-{
-	for (const FCharacterStateBackup& Backup : Backups)
-	{
-		if (ABlasterCharacter* Char = Backup.Character.Get())
-		{
-			Char->ApplyHitboxState(Backup.SavedEntry);
-		}
-	}
-}
-
-void USSR_RewindManager::ApplyHistoricalEntry(ABlasterCharacter* Character, const FSSR_PlayerFrameEntry& Entry)
-{
-	if (Character) Character->ApplyHitboxState(Entry);
-}
-
-void USSR_RewindManager::ApplyCurrentEntry(ABlasterCharacter* Character, const FSSR_PlayerFrameEntry& Entry)
-{
-	if (Character) Character->ApplyHitboxState(Entry);
 }

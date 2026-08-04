@@ -234,7 +234,7 @@ void UCombatComponent::FireProjectileWeapon()
 		// 投射物不使用 SSR（有物理飞行时间），但签名保持一致
 		float ClientShotTime = 0.f;
 		if (Controller) ClientShotTime = Controller->GetServerTime();
-		ServerFire(HitTarget, EquippedWeapon->FireDelay, ClientShotTime);
+		ServerFire(HitTarget, EquippedWeapon->FireDelay, ClientShotTime, FVector::ZeroVector);
 	}
 }
 
@@ -244,10 +244,17 @@ void UCombatComponent::FireHitScanWeapon()
 	{
 		HitTarget = EquippedWeapon->bUseScatter ? EquippedWeapon->TraceEndWithScatter(HitTarget, bAiming) : HitTarget;
 		LocalFire(HitTarget);
-		// 附加客户端估计的服务器时间，用于 SSR 延迟补偿
+		// 附加客户端估计的服务器时间 + 客户端枪口位置，用于 SSR 延迟补偿
 		float ClientShotTime = 0.f;
 		if (Controller) ClientShotTime = Controller->GetServerTime();
-		ServerFire(HitTarget, EquippedWeapon->FireDelay, ClientShotTime);
+		// 获取客户端枪口位置：与服务端动画姿态有偏差，SSR 需要客户端数据保证射线一致
+		FVector ClientMuzzle = FVector::ZeroVector;
+		const USkeletalMeshSocket* MuzzleSocket = EquippedWeapon->GetWeaponMesh()->GetSocketByName("MuzzleFlash");
+		if (MuzzleSocket)
+		{
+			ClientMuzzle = MuzzleSocket->GetSocketTransform(EquippedWeapon->GetWeaponMesh()).GetLocation();
+		}
+		ServerFire(HitTarget, EquippedWeapon->FireDelay, ClientShotTime, ClientMuzzle);
 	}
 }
 
@@ -259,10 +266,16 @@ void UCombatComponent::FireShotgun()
 		TArray<FVector_NetQuantize> HitTargets;
 		Shotgun->ShotgunTraceEndWithScatter(HitTarget, HitTargets, bAiming);
 		if (!Character->HasAuthority()) ShotgunLocalFire(HitTargets);
-		// 附加客户端估计的服务器时间，用于 SSR 延迟补偿
+		// 附加客户端估计的服务器时间 + 客户端枪口位置，用于 SSR 延迟补偿
 		float ClientShotTime = 0.f;
 		if (Controller) ClientShotTime = Controller->GetServerTime();
-		ServerShotgunFire(HitTargets, EquippedWeapon->FireDelay, ClientShotTime);
+		FVector ClientMuzzle = FVector::ZeroVector;
+		const USkeletalMeshSocket* MuzzleSocket = EquippedWeapon->GetWeaponMesh()->GetSocketByName("MuzzleFlash");
+		if (MuzzleSocket)
+		{
+			ClientMuzzle = MuzzleSocket->GetSocketTransform(EquippedWeapon->GetWeaponMesh()).GetLocation();
+		}
+		ServerShotgunFire(HitTargets, EquippedWeapon->FireDelay, ClientShotTime, ClientMuzzle);
 	}
 }
 
@@ -501,112 +514,94 @@ void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& T
 	LocalFire(TraceHitTarget);
 }
 
-void UCombatComponent::ServerFire_Implementation(const FVector_NetQuantize& TraceHitTarget, float FireDelay, float ClientShotTime)
+void UCombatComponent::ServerFire_Implementation(const FVector_NetQuantize& TraceHitTarget, float FireDelay, float ClientShotTime, const FVector_NetQuantize& ClientMuzzle)
 {
-	// 视觉效果多播：其他客户端看到枪焰和弹道
-	MulticastFire(TraceHitTarget);
-
-	// ── SSR 延迟补偿命中判定 ──
-	// 仅服务器执行；跳过 Listen Server 主机（0 Ping 不需要回退）
 	if (!Character || !EquippedWeapon) return;
-	if (Character->IsLocallyControlled())
-	{
-		UE_LOG(LogTemp, Verbose, TEXT("[SSR] SKIP: Listen Server host — using original Fire() path"));
-		return;
-	}
 
+	// ── SSR 延迟补偿命中判定（先于 MulticastFire，避免二次伤害）──
 	AHitScanWeapon* HSWeapon = Cast<AHitScanWeapon>(EquippedWeapon);
 	ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>();
-	if (!HSWeapon || !GS || !GS->GetSSRRewindManager()) return;
-
-	// 从 MuzzleFlash Socket 获取枪口世界位置（TraceStart）
-	const USkeletalMeshSocket* MuzzleSocket = EquippedWeapon->GetWeaponMesh()->GetSocketByName("MuzzleFlash");
-	if (!MuzzleSocket) return;
-	const FVector MuzzleLoc = MuzzleSocket->GetSocketTransform(EquippedWeapon->GetWeaponMesh()).GetLocation();
-
-	UE_LOG(LogTemp, Verbose, TEXT("[SSR] ENTER ServerFire | Shooter=%s | Muzzle=(%.0f,%.0f,%.0f) | HitTarget=(%.0f,%.0f,%.0f) | ClientShotTime=%.3f"),
-		*GetNameSafe(Character), MuzzleLoc.X, MuzzleLoc.Y, MuzzleLoc.Z,
-		TraceHitTarget.X, TraceHitTarget.Y, TraceHitTarget.Z, ClientShotTime);
-
-	FSSR_TraceResult Result = GS->GetSSRRewindManager()->ProcessHitScanShot(
-		Character, HSWeapon, MuzzleLoc, TraceHitTarget, ClientShotTime);
-
-	if (Result.bHit)
+	if (HSWeapon && GS && GS->GetSSRRewindManager() && !ClientMuzzle.IsZero())
 	{
-		GS->GetSSRRewindManager()->ApplySSRDamage(Character, EquippedWeapon, Result);
-		HSWeapon->bSSRHandledShot = true; // 阻止 MulticastFire→LocalFire→Fire() 的二次伤害
-	}
-	else
-	{
-		UE_LOG(LogTemp, Verbose, TEXT("[SSR] EXIT ServerFire | Result: MISS — falling back to original Fire() path"));
-	}
-}
+		UE_LOG(LogTemp, Verbose, TEXT("[SSR] ENTER ServerFire | Shooter=%s | Muzzle=(%.0f,%.0f,%.0f) | HitTarget=(%.0f,%.0f,%.0f) | ClientShotTime=%.3f"),
+			*GetNameSafe(Character), ClientMuzzle.X, ClientMuzzle.Y, ClientMuzzle.Z,
+			TraceHitTarget.X, TraceHitTarget.Y, TraceHitTarget.Z, ClientShotTime);
 
-void UCombatComponent::ServerShotgunFire_Implementation(const TArray<FVector_NetQuantize>& TraceHitTargets, float FireDelay, float ClientShotTime)
-{
-	// 视觉效果多播
-	MulticastShotgunFire(TraceHitTargets);
+		FSSR_TraceResult Result = GS->GetSSRRewindManager()->ProcessHitScanShot(
+			Character, HSWeapon, ClientMuzzle, TraceHitTarget, ClientShotTime);
 
-	// ── SSR 霰弹枪延迟补偿 ──
-	if (!Character || !EquippedWeapon) return;
-	if (Character->IsLocallyControlled())
-	{
-		UE_LOG(LogTemp, Verbose, TEXT("[SSR] SKIP Shotgun: Listen Server host"));
-		return;
-	}
-
-	AShotgun* ShotgunWeap = Cast<AShotgun>(EquippedWeapon);
-	ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>();
-	if (!ShotgunWeap || !GS || !GS->GetSSRRewindManager()) return;
-
-	const USkeletalMeshSocket* MuzzleSocket = EquippedWeapon->GetWeaponMesh()->GetSocketByName("MuzzleFlash");
-	if (!MuzzleSocket) return;
-	const FVector MuzzleLoc = MuzzleSocket->GetSocketTransform(EquippedWeapon->GetWeaponMesh()).GetLocation();
-
-	UE_LOG(LogTemp, Verbose, TEXT("[SSR] ENTER ServerShotgunFire | Shooter=%s | Pellets=%d | ClientShotTime=%.3f"),
-		*GetNameSafe(Character), TraceHitTargets.Num(), ClientShotTime);
-
-	TArray<FSSR_TraceResult> Results = GS->GetSSRRewindManager()->ProcessShotgunPellets(
-		Character, ShotgunWeap, MuzzleLoc, TraceHitTargets, ClientShotTime);
-
-	// 聚合伤害：与 Shotgun::FireShotgun 相同的按目标累加逻辑
-	TMap<ABlasterCharacter*, float> DamageMap;
-	for (const FSSR_TraceResult& Result : Results)
-	{
-		if (!Result.bHit || !Result.HitActor.IsValid()) continue;
-		ABlasterCharacter* HitChar = Cast<ABlasterCharacter>(Result.HitActor.Get());
-		if (!HitChar) continue;
-
-		const bool bHeadShot = (Result.BoneName == FName("head"));
-		const float Dmg = bHeadShot ? EquippedWeapon->GetHeadShotDamage() : EquippedWeapon->GetDamage();
-		DamageMap.FindOrAdd(HitChar) += Dmg;
-	}
-
-	// 对每个被命中的目标一次性 ApplyDamage
-	for (const auto& Pair : DamageMap)
-	{
-		if (Pair.Key)
+		if (Result.bHit)
 		{
-			UGameplayStatics::ApplyDamage(
-				Pair.Key,
-				Pair.Value,
-				Character->GetController(),
-				EquippedWeapon,
-				UDamageType::StaticClass()
-			);
+			GS->GetSSRRewindManager()->ApplySSRDamage(Character, EquippedWeapon, Result);
+			HSWeapon->bSSRHandledShot = true; // 阻止 MulticastFire→LocalFire→Fire() 的二次伤害
+		}
+		else
+		{
+			UE_LOG(LogTemp, Verbose, TEXT("[SSR] EXIT ServerFire | Result: MISS — falling back to original Fire() path"));
 		}
 	}
 
-	if (Results.Num() > 0)
+	// 视觉效果多播：放在 SSR 之后，bSSRHandledShot 先生效再触发 Fire()
+	MulticastFire(TraceHitTarget);
+}
+
+void UCombatComponent::ServerShotgunFire_Implementation(const TArray<FVector_NetQuantize>& TraceHitTargets, float FireDelay, float ClientShotTime, const FVector_NetQuantize& ClientMuzzle)
+{
+	if (!Character || !EquippedWeapon) return;
+
+	// ── SSR 霰弹枪延迟补偿（先于 MulticastShotgunFire，避免二次伤害）──
+	AShotgun* ShotgunWeap = Cast<AShotgun>(EquippedWeapon);
+	ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>();
+	if (ShotgunWeap && GS && GS->GetSSRRewindManager() && !ClientMuzzle.IsZero())
 	{
-		ShotgunWeap->bSSRHandledShot = true;
+		UE_LOG(LogTemp, Verbose, TEXT("[SSR] ENTER ServerShotgunFire | Shooter=%s | Pellets=%d | ClientShotTime=%.3f"),
+			*GetNameSafe(Character), TraceHitTargets.Num(), ClientShotTime);
+
+		TArray<FSSR_TraceResult> Results = GS->GetSSRRewindManager()->ProcessShotgunPellets(
+			Character, ShotgunWeap, ClientMuzzle, TraceHitTargets, ClientShotTime);
+
+			// 聚合伤害：与 Shotgun::FireShotgun 相同的按目标累加逻辑
+			TMap<ABlasterCharacter*, float> DamageMap;
+			for (const FSSR_TraceResult& Result : Results)
+			{
+				if (!Result.bHit || !Result.HitActor.IsValid()) continue;
+				ABlasterCharacter* HitChar = Cast<ABlasterCharacter>(Result.HitActor.Get());
+				if (!HitChar) continue;
+
+				const bool bHeadShot = (Result.BoneName == FName("head"));
+				const float Dmg = bHeadShot ? EquippedWeapon->GetHeadShotDamage() : EquippedWeapon->GetDamage();
+				DamageMap.FindOrAdd(HitChar) += Dmg;
+			}
+
+			// 对每个被命中的目标一次性 ApplyDamage
+			for (const auto& Pair : DamageMap)
+			{
+				if (Pair.Key)
+				{
+					UGameplayStatics::ApplyDamage(
+						Pair.Key,
+						Pair.Value,
+						Character->GetController(),
+						EquippedWeapon,
+						UDamageType::StaticClass()
+					);
+				}
+			}
+
+			if (Results.Num() > 0)
+			{
+				ShotgunWeap->bSSRHandledShot = true; // 阻止 MulticastShotgunFire→ShotgunLocalFire→FireShotgun() 的二次伤害
+			}
+
+			// 汇总日志：几个弹丸命中、命中哪些目标
+			int32 HitCount = 0;
+			for (const FSSR_TraceResult& R : Results) { if (R.bHit) HitCount++; }
+			UE_LOG(LogTemp, Log, TEXT("[SSR] EXIT ServerShotgunFire | %d/%d pellets hit | %d unique targets damaged"),
+				HitCount, Results.Num(), DamageMap.Num());
 	}
 
-	// 汇总日志：几个弹丸命中、命中哪些目标
-	int32 HitCount = 0;
-	for (const FSSR_TraceResult& R : Results) { if (R.bHit) HitCount++; }
-	UE_LOG(LogTemp, Log, TEXT("[SSR] EXIT ServerShotgunFire | %d/%d pellets hit | %d unique targets damaged"),
-		HitCount, Results.Num(), DamageMap.Num());
+	// 视觉效果多播：放在 SSR 之后，bSSRHandledShot 先生效再触发 FireShotgun()
+	MulticastShotgunFire(TraceHitTargets);
 }
 
 void UCombatComponent::MulticastShotgunFire_Implementation(const TArray<FVector_NetQuantize>& TraceHitTargets)

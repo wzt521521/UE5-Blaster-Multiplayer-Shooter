@@ -28,7 +28,8 @@ class MULTIPLAYERSESSIONS_API UMultiplayerSessionsSubsystem : public UGameInstan
 public:
 	UMultiplayerSessionsSubsystem();
 
-	void CreateSession(int32 NumPublicConnections, FString MatchType);
+	// bIsDedicatedServer: true → 会话标记为 Dedicated Server（Steam 服务器列表可见）
+	void CreateSession(int32 NumPublicConnections, FString MatchType, bool bIsDedicatedServer = false);
 	void FindSessions(int32 MaxSearchResults);
 	void JoinSession(const FOnlineSessionSearchResult& SessionResult);
 	void DestroySession();

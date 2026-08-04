@@ -38,11 +38,11 @@ UMultiplayerSessionsSubsystem::UMultiplayerSessionsSubsystem() :
 }
 
 // ===== CREATE SESSION =====
-void UMultiplayerSessionsSubsystem::CreateSession(int32 NumPublicConnections, FString MatchType)
+void UMultiplayerSessionsSubsystem::CreateSession(int32 NumPublicConnections, FString MatchType, bool bIsDedicatedServer)
 {
     UE_LOG(LogMultiplayerSessions, Warning,
-        TEXT("[Subsystem] CreateSession ENTER | NumPublicConnections=%d | MatchType=%s"),
-        NumPublicConnections, *MatchType);
+        TEXT("[Subsystem] CreateSession ENTER | NumPublicConnections=%d | MatchType=%s | bIsDedicated=%d"),
+        NumPublicConnections, *MatchType, bIsDedicatedServer);
 
     if (!SessionInterface.IsValid())
     {
@@ -74,18 +74,19 @@ void UMultiplayerSessionsSubsystem::CreateSession(int32 NumPublicConnections, FS
     const bool bIsLAN = (IOnlineSubsystem::Get()->GetSubsystemName() == "NULL");
     LastSessionSettings = MakeShareable(new FOnlineSessionSettings());
     LastSessionSettings->bIsLANMatch = bIsLAN;
+    LastSessionSettings->bIsDedicated = bIsDedicatedServer;            // DS 标记：Steam 服务器列表区分类别
     LastSessionSettings->NumPublicConnections = NumPublicConnections;
     LastSessionSettings->bAllowJoinInProgress = true;
     LastSessionSettings->bAllowJoinViaPresence = true;
-    LastSessionSettings->bShouldAdvertise = true;           // Steam 服务器列表可见
-    LastSessionSettings->bUsesPresence = true;              // 好友可通过 Presence 发现
-    LastSessionSettings->bUseLobbiesIfAvailable = true;     // 优先使用 Steam Lobby
-    LastSessionSettings->BuildUniqueId = 1;                 // 确保每次创建的会话 ID 不同
+    LastSessionSettings->bShouldAdvertise = true;                      // Steam 服务器列表可见
+    LastSessionSettings->bUsesPresence = true;                         // 好友可通过 Presence 发现
+    LastSessionSettings->bUseLobbiesIfAvailable = !bIsDedicatedServer; // DS 不使用 Lobby，走经典服务器列表
+    LastSessionSettings->BuildUniqueId = 1;                            // 确保每次创建的会话 ID 不同
     LastSessionSettings->Set(FName("MatchType"), MatchType, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
 
     UE_LOG(LogMultiplayerSessions, Warning,
-        TEXT("[Subsystem] CreateSession | Settings: bIsLAN=%d | NumPublic=%d | bAdvertise=%d | bPresence=%d | bLobbies=%d | BuildId=%d"),
-        bIsLAN, NumPublicConnections,
+        TEXT("[Subsystem] CreateSession | Settings: bIsLAN=%d | bIsDedicated=%d | NumPublic=%d | bAdvertise=%d | bPresence=%d | bLobbies=%d | BuildId=%d"),
+        bIsLAN, bIsDedicatedServer, NumPublicConnections,
         LastSessionSettings->bShouldAdvertise,
         LastSessionSettings->bUsesPresence,
         LastSessionSettings->bUseLobbiesIfAvailable,

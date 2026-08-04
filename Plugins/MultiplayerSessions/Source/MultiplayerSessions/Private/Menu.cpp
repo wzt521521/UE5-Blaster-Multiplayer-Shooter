@@ -9,15 +9,20 @@
 #include "GameFramework/PlayerController.h"
 
 // ===== MenuSetup — 由蓝图在 GameStartupMap 关卡蓝图调用，初始化菜单 =====
-void UMenu::MenuSetup(int32 NumberOfPublicConnections, FString TypeOfMatch, FString LobbyPath)
+void UMenu::MenuSetup(int32 NumberOfPublicConnections, FString TypeOfMatch, FString LobbyPath, bool bIsDS)
 {
-    PathToLobby = FString::Printf(TEXT("%s?listen"), *LobbyPath);
+    // DS 模式：不加 ?listen，服务器由独立 DS 进程托管
+    // Listen Server 模式：加 ?listen，玩家自己成为服务器
+    PathToLobby = bIsDS
+        ? FString::Printf(TEXT("%s"), *LobbyPath)
+        : FString::Printf(TEXT("%s?listen"), *LobbyPath);
     NumPublicConnections = NumberOfPublicConnections;
     MatchType = TypeOfMatch;
+    bIsDedicatedServer = bIsDS;
 
     UE_LOG(LogMultiplayerSessions, Warning,
-        TEXT("[Menu] MenuSetup | NumConnections=%d | MatchType=%s | LobbyPath=%s → PathToLobby=%s"),
-        NumberOfPublicConnections, *TypeOfMatch, *LobbyPath, *PathToLobby);
+        TEXT("[Menu] MenuSetup | NumConnections=%d | MatchType=%s | LobbyPath=%s → PathToLobby=%s | bDedicated=%d"),
+        NumberOfPublicConnections, *TypeOfMatch, *LobbyPath, *PathToLobby, bIsDedicatedServer);
 
     AddToViewport();
     SetVisibility(ESlateVisibility::Visible);
@@ -133,7 +138,7 @@ void UMenu::HostButtonClicked()
 
     if (MultiplayerSessionsSubsystem)
     {
-        MultiplayerSessionsSubsystem->CreateSession(NumPublicConnections, MatchType);
+        MultiplayerSessionsSubsystem->CreateSession(NumPublicConnections, MatchType, bIsDedicatedServer);
     }
     else
     {
@@ -195,22 +200,34 @@ void UMenu::OnCreateSession(bool bWasSuccessful)
 
     if (bWasSuccessful)
     {
-        // 成功：移除菜单 → ServerTravel 到 Lobby 地图（Listen Server）
-        UE_LOG(LogMultiplayerSessions, Warning,
-            TEXT("[Menu] OnCreateSession SUCCESS | MenuTearDown → ServerTravel(%s)"),
-            *PathToLobby);
-
-        MenuTearDown();
-
-        UWorld* World = GetWorld();
-        if (World)
+        // DS 模式：会话创建成功即完成（DS 进程独立运行，客户端通过 Join 加入）
+        // Listen Server 模式：ServerTravel 到地图，玩家自己成为服务器
+        if (bIsDedicatedServer)
         {
-            World->ServerTravel(PathToLobby);
+            UE_LOG(LogMultiplayerSessions, Warning,
+                TEXT("[Menu] OnCreateSession SUCCESS | bDedicated=1 | Session advertised, waiting for players"));
         }
         else
         {
-            UE_LOG(LogMultiplayerSessions, Error,
-                TEXT("[Menu] OnCreateSession | World is null! Cannot ServerTravel."));
+            UE_LOG(LogMultiplayerSessions, Warning,
+                TEXT("[Menu] OnCreateSession SUCCESS | bDedicated=0 | MenuTearDown → ServerTravel(%s)"),
+                *PathToLobby);
+        }
+
+        MenuTearDown();
+
+        if (!bIsDedicatedServer)
+        {
+            UWorld* World = GetWorld();
+            if (World)
+            {
+                World->ServerTravel(PathToLobby);
+            }
+            else
+            {
+                UE_LOG(LogMultiplayerSessions, Error,
+                    TEXT("[Menu] OnCreateSession | World is null! Cannot ServerTravel."));
+            }
         }
     }
     else

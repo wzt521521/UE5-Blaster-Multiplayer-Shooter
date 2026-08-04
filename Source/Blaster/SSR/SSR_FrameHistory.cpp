@@ -184,6 +184,10 @@ void USSR_FrameHistory::CapturePlayerEntry(ABlasterCharacter* Player, FSSR_Playe
 
 	const FTransform MeshWorldTM = Mesh->GetComponentTransform();
 
+	// 保存 Mesh Component 世界 Transform（恢复时直接移动 Component 来带动骨骼物理体）
+	OutEntry.MeshWorldLocation = MeshWorldTM.GetLocation();
+	OutEntry.MeshWorldRotation = MeshWorldTM.GetRotation();
+
 	for (const FName& BoneName : RelevantBoneNames)
 	{
 		const int32 BoneIndex = Mesh->GetBoneIndex(BoneName);
