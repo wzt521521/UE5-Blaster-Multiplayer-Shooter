@@ -27,6 +27,15 @@ public:
 	virtual void OnRep_Defeats();
 	void AddToDefeats(int32 DefeatsAmount);
 
+	// 读取死亡次数（Defeats 私有字段唯一读取入口，比赛结束时 GameMode 统计持久化用）
+	int32 GetDefeats() const { return Defeats; }
+
+	// ── 持久身份（P4 玩家数据持久化）──
+	// 客户端上报的持久玩家 ID（GUID，见 FBlasterPlayerIdentity），不复制——
+	// 仅服务端保存，比赛结算时写入 player_stats.player_id 列（按人归集的键）
+	void SetPlayerId(const FString& InPlayerId) { PlayerId = InPlayerId; }
+	const FString& GetPlayerId() const { return PlayerId; }
+
 	// 当前所属阵营（服务器权威修改，复制到所有客户端）
 	UPROPERTY(ReplicatedUsing = OnRep_TeamID)
 	ETeamID TeamID = ETeamID::ETI_None;
@@ -89,4 +98,7 @@ private:
 
 	// 当前回合击杀数（仅服务端使用，不复制。回合结束时按此值 × KillReward 结算后归零）
 	int32 RoundKills = 0;
+
+	// 客户端上报的持久玩家 ID（GUID，不复制）——比赛结算时随战绩写入 SQLite
+	FString PlayerId;
 };

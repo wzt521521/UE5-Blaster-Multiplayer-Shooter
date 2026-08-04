@@ -19,9 +19,12 @@ EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		DebugGame Editor|Win64 = DebugGame Editor|Win64
+		DebugGame Server|Win64 = DebugGame Server|Win64
 		DebugGame|Win64 = DebugGame|Win64
 		Development Editor|Win64 = Development Editor|Win64
+		Development Server|Win64 = Development Server|Win64
 		Development|Win64 = Development|Win64
+		Shipping Server|Win64 = Shipping Server|Win64
 		Shipping|Win64 = Shipping|Win64
 	EndGlobalSection
 	# UnrealVS Section
@@ -30,18 +33,27 @@ Global
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{405FCEE6-CDD5-3DB5-A8A6-D0DE83643607}.DebugGame Editor|Win64.ActiveCfg = BuiltWithUnrealBuildTool|Win64
+		{405FCEE6-CDD5-3DB5-A8A6-D0DE83643607}.DebugGame Server|Win64.ActiveCfg = BuiltWithUnrealBuildTool|Win64
 		{405FCEE6-CDD5-3DB5-A8A6-D0DE83643607}.DebugGame|Win64.ActiveCfg = BuiltWithUnrealBuildTool|Win64
 		{405FCEE6-CDD5-3DB5-A8A6-D0DE83643607}.Development Editor|Win64.ActiveCfg = BuiltWithUnrealBuildTool|Win64
+		{405FCEE6-CDD5-3DB5-A8A6-D0DE83643607}.Development Server|Win64.ActiveCfg = BuiltWithUnrealBuildTool|Win64
 		{405FCEE6-CDD5-3DB5-A8A6-D0DE83643607}.Development|Win64.ActiveCfg = BuiltWithUnrealBuildTool|Win64
+		{405FCEE6-CDD5-3DB5-A8A6-D0DE83643607}.Shipping Server|Win64.ActiveCfg = BuiltWithUnrealBuildTool|Win64
 		{405FCEE6-CDD5-3DB5-A8A6-D0DE83643607}.Shipping|Win64.ActiveCfg = BuiltWithUnrealBuildTool|Win64
 		{74C2D05E-FD36-3685-9945-13F7494448DD}.DebugGame Editor|Win64.ActiveCfg = DebugGame_Editor|x64
 		{74C2D05E-FD36-3685-9945-13F7494448DD}.DebugGame Editor|Win64.Build.0 = DebugGame_Editor|x64
+		{74C2D05E-FD36-3685-9945-13F7494448DD}.DebugGame Server|Win64.ActiveCfg = DebugGame_Server|x64
+		{74C2D05E-FD36-3685-9945-13F7494448DD}.DebugGame Server|Win64.Build.0 = DebugGame_Server|x64
 		{74C2D05E-FD36-3685-9945-13F7494448DD}.DebugGame|Win64.ActiveCfg = DebugGame|x64
 		{74C2D05E-FD36-3685-9945-13F7494448DD}.DebugGame|Win64.Build.0 = DebugGame|x64
 		{74C2D05E-FD36-3685-9945-13F7494448DD}.Development Editor|Win64.ActiveCfg = Development_Editor|x64
 		{74C2D05E-FD36-3685-9945-13F7494448DD}.Development Editor|Win64.Build.0 = Development_Editor|x64
+		{74C2D05E-FD36-3685-9945-13F7494448DD}.Development Server|Win64.ActiveCfg = Development_Server|x64
+		{74C2D05E-FD36-3685-9945-13F7494448DD}.Development Server|Win64.Build.0 = Development_Server|x64
 		{74C2D05E-FD36-3685-9945-13F7494448DD}.Development|Win64.ActiveCfg = Development|x64
 		{74C2D05E-FD36-3685-9945-13F7494448DD}.Development|Win64.Build.0 = Development|x64
+		{74C2D05E-FD36-3685-9945-13F7494448DD}.Shipping Server|Win64.ActiveCfg = Shipping_Server|x64
+		{74C2D05E-FD36-3685-9945-13F7494448DD}.Shipping Server|Win64.Build.0 = Shipping_Server|x64
 		{74C2D05E-FD36-3685-9945-13F7494448DD}.Shipping|Win64.ActiveCfg = Shipping|x64
 		{74C2D05E-FD36-3685-9945-13F7494448DD}.Shipping|Win64.Build.0 = Shipping|x64
 	EndGlobalSection

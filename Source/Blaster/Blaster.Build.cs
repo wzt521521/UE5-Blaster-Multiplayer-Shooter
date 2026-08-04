@@ -23,6 +23,10 @@ public class Blaster : ModuleRules
 			PublicDependencyModuleNames.AddRange(new string[] { "OnlineSubsystemUtils" });
 		}
 
-		PrivateDependencyModuleNames.AddRange(new string[] {  });
+		// SQLiteCore：原生 sqlite3 C API（IncludeSQLite.h），P4 玩家数据持久化（服务端后台线程写库）。
+		// 放 PrivateDependency：仅 Blaster 模块自身引用 sqlite3 符号，不对外暴露。
+		// 不按 Server 加条件——客户端只是运行时不启动 worker（IsRunningDedicatedServer 门），
+		// 保持将来换 MySQL store 时构建配置不变。
+		PrivateDependencyModuleNames.AddRange(new string[] { "SQLiteCore" });
 	}
 }

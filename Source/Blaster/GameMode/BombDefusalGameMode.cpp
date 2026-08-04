@@ -18,6 +18,7 @@
 #include "Blaster/PlayerStart/TeamPlayerStart.h"
 #include "Blaster/BombMode/BombActor.h"    // 炸弹实体（BombMode Phase 3）
 #include "Blaster/BombMode/BombSite.h"     // 埋包点（BombMode Phase 3）
+#include "Blaster/Persistence/BlasterPersistenceSubsystem.h"  // P4：比赛结算 → 异步入队写 SQLite
 #include "EngineUtils.h"  // TActorIterator
 
 ABombDefusalGameMode::ABombDefusalGameMode()
@@ -30,6 +31,8 @@ ABombDefusalGameMode::ABombDefusalGameMode()
 	// 必须显式设 GameStateClass：确保客户端创建的 GameState 代理是 ABlasterGameState 类型，
 	// 否则 GetGameState<ABlasterGameState>() 返回 nullptr，所有委托绑定和 OnRep 回调静默失效
 	GameStateClass = ABlasterGameState::StaticClass();
+	// 无缝切图：新 PC 按本类生成（旧 PC 若为其子类则保留原类）。必须有，否则玩家没有 Blaster 输入/HUD
+	PlayerControllerClass = ABlasterPlayerController::StaticClass();
 
 	UE_LOG(LogTemp, Log, TEXT("[BombDefusalGameMode] Constructor — CDO created, bUseSeamlessTravel=%d, AimPeople=%d"),
 		bUseSeamlessTravel, AimPeople);
@@ -415,6 +418,50 @@ void ABombDefusalGameMode::ConcludeMatch(ELogicalTeam Winner)
 	SyncToGameState();
 	if (BlasterGameState) BlasterGameState->BroadcastMatchResult();  // 委托驱动 Widget 刷新
 	SetMatchState(MatchState::MatchEnd);
+
+	// ── 持久化（P4）：比赛结束 → 快照统计并入队写入 SQLite ──
+	// 本函数只"入队"不"等待"：真正的 DB 写由后台线程（UBlasterPersistenceSubsystem 的 worker）完成。
+	// 为什么必须异步：ReturnToLobby 的 ServerTravel 会销毁世界，若同步等写盘将阻塞游戏线程
+	// 甚至在 travel 后丢数据；入队后即使服务器立刻 travel，worker 线程仍会把数据落盘。
+	if (UBlasterPersistenceSubsystem* Persistence = UBlasterPersistenceSubsystem::Get())
+	{
+		Persistence->EnqueueMatchResult(BuildMatchResultRecord(Winner));
+	}
+}
+
+// P4 持久化：把本场最终战绩快照为纯数据结构（不引用任何 UObject → worker 线程安全）。
+// 遍历 GameState->PlayerArray（权威全列表，含中途加入/掉线者）读取各 PlayerState 终值。
+FMatchResultRecord ABombDefusalGameMode::BuildMatchResultRecord(ELogicalTeam Winner) const
+{
+	FMatchResultRecord Record;
+	Record.TimestampUtc  = FDateTime::UtcNow().ToIso8601();  // 入队时（游戏线程）取服务器时间
+	Record.MapName       = GetWorld() ? GetWorld()->GetMapName() : TEXT("Unknown");
+	Record.WinnerTeam    = (Winner == ELogicalTeam::ELT_TeamA) ? TEXT("TeamA")
+	                     : (Winner == ELogicalTeam::ELT_TeamB) ? TEXT("TeamB") : TEXT("None");
+	Record.TeamARoundWins = BlasterGameState ? BlasterGameState->TeamARoundWins : 0;
+	Record.TeamBRoundWins = BlasterGameState ? BlasterGameState->TeamBRoundWins : 0;
+	Record.RoundsPlayed   = RoundNumber;
+
+	if (GameState)
+	{
+		for (APlayerState* PS : GameState->PlayerArray)
+		{
+			ABlasterPlayerState* BPS = Cast<ABlasterPlayerState>(PS);
+			if (!BPS) continue;
+
+			FPlayerMatchRecord P;
+			P.PlayerId     = BPS->GetPlayerId();   // 客户端上报的持久身份（按人归集的键）
+			P.PlayerName   = BPS->GetPlayerName(); // 展示名（不唯一）
+			P.TeamID       = (int32)BPS->TeamID;
+			P.LogicalTeam  = (int32)BPS->LogicalTeam;
+			P.Kills        = (int32)BPS->GetScore();  // 每击杀 +1（OnPlayerKilled）
+			P.Deaths       = BPS->GetDefeats();
+			P.RoundKills   = BPS->GetRoundKills();    // 最后一回合快照（冗余，便于演示经济）
+			P.Money        = BPS->Money;
+			Record.Players.Add(P);
+		}
+	}
+	return Record;
 }
 
 void ABombDefusalGameMode::ReturnToLobby()

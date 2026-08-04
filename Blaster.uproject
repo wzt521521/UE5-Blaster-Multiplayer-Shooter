@@ -26,6 +26,11 @@
 			"Name": "OnlineSubsystemSteam",
 			"Enabled": true,
 			"TargetAllowList": [ "Client", "Editor" ]
+		},
+		{
+			"Name": "SQLiteCore",
+			"Enabled": true,
+			"TargetAllowList": [ "Server", "Client", "Editor" ]
 		}
 	]
 }

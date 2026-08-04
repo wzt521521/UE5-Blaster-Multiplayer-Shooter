@@ -6,6 +6,7 @@
 #include "Blaster/GameState/BlasterGameState.h"
 #include "Blaster/BlasterTypes/EconomyTypes.h"
 #include "Blaster/Economy/EconomyConfig.h"
+#include "Blaster/Persistence/MatchResultRecord.h"   // P4：按值返回 FMatchResultRecord 需完整类型
 #include "BombDefusalGameMode.generated.h"
 
 class ABlasterCharacter;
@@ -198,6 +199,10 @@ private:
 
 	// 将 CountdownTime / 回合信息 推送到 GameState，客户端通过 GameState 读取
 	void SyncToGameState();
+
+	// ── 持久化辅助（P4 玩家数据持久化）──
+	// 比赛结束时把本场统计快照为纯数据结构（不引用任何 UObject，供后台线程安全写入 SQLite）
+	FMatchResultRecord BuildMatchResultRecord(ELogicalTeam Winner) const;
 
 	// ── 经济系统辅助（Phase 3）──
 	ELogicalTeam GetLogicalTeamFromRole(ETeamID TeamRole) const;       // 角色 → 逻辑队伍映射

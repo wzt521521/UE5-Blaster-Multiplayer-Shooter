@@ -7,6 +7,9 @@
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"       // GetPlayerName
 #include "Blaster/BlasterTypes/MatchState.h" // LeavingMap 常量
+#include "Blaster/PlayerState/BlasterPlayerState.h"         // 无缝切图要求：大厅就用 Blaster 的 PS 类
+#include "Blaster/GameState/BlasterGameState.h"             // 同上：GameState 类保持一致
+#include "Blaster/PlayerController/BlasterPlayerController.h" // 同上：PC 类保持一致
 
 DEFINE_LOG_CATEGORY(LogLobby);
 DEFINE_LOG_CATEGORY(LogServerSession);
@@ -17,6 +20,14 @@ ALobbyGameMode::ALobbyGameMode()
 {
     UE_LOG(LogLobby, Log, TEXT("[LobbyGameMode] Constructor — CDO created, bUseSeamlessTravel=%d, AimPeople=%d, GameMapPath=%s"),
         bUseSeamlessTravel, AimPeople, *GameMapPath);
+
+    // ── 无缝切图关键：核心类必须与目标地图(BombDefusalGameMode)一致 ──
+    // 无缝切图会把玩家的 PlayerState/Controller 原样带到下一张地图（不按新 GameMode 重建）。
+    // 若大厅用默认 APlayerState，Bomb 地图 GetActivePlayers() 的 Cast<ABlasterPlayerState> 会失败
+    // → 状态机卡在 WaitingToStart → 不生成角色。这里统一三个核心类。
+    PlayerStateClass = ABlasterPlayerState::StaticClass();
+    GameStateClass = ABlasterGameState::StaticClass();
+    PlayerControllerClass = ABlasterPlayerController::StaticClass();
 
     // 绑定 DS 端建会话的异步回调
     ServerCreateSessionCompleteDelegate =

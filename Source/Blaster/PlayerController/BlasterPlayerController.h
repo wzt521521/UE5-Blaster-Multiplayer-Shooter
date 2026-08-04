@@ -90,6 +90,11 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerRequestServerTime(float TimeOfClientRequest);
 
+	// 客户端上报本地持久 PlayerId（GUID，见 FBlasterPlayerIdentity）：
+	// 服务器写入 PlayerState，供比赛结算时持久化到 SQLite（按人归集的键）
+	UFUNCTION(Server, Reliable)
+	void ServerSetPlayerId(const FString& InPlayerId);
+
 	UFUNCTION(Client, Reliable)
 	void ClientReportServerTime(float TimeOfClientRequest, float TimeServerReceivedClientRequest);
 

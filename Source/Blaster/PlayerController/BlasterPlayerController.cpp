@@ -26,6 +26,7 @@
 #include "Blaster/BombMode/BombInteractWidget.h" // 炸弹交互进度条
 #include "Blaster/BombMode/BombActor.h"          // 查找已安放炸弹
 #include "Blaster/BombMode/BombSite.h"           // 读取点位名
+#include "Blaster/Persistence/PlayerIdentity.h"  // P4 持久身份：客户端本地 PlayerId
 #include "Kismet/GameplayStatics.h"
 
 void ABlasterPlayerController::SetupInputComponent()
@@ -46,6 +47,13 @@ void ABlasterPlayerController::BeginPlay()
 	//应该添加annocuncement
 	//announcement已经通过ServerCheckMatchState()由客户端独自添加
 	ServerCheckMatchState();
+
+	// P4 持久身份上报：客户端读取本地持久 PlayerId 上报服务器（仅本地客户端执行；
+	// 服务器端 BeginPlay 也会进入，但 IsLocalController() 为 false 跳过，避免服务器自己生成 ID）
+	if (IsLocalController())
+	{
+		ServerSetPlayerId(FBlasterPlayerIdentity::GetPlayerId());
+	}
 }
 
 void ABlasterPlayerController::Tick(float DeltaTime)
@@ -277,6 +285,17 @@ void ABlasterPlayerController::ServerRequestServerTime_Implementation(float Time
 	// P3 时间窗校验：收到同步请求即标记该玩家时钟可校验（客户端 GetServerTime 已基于本服务端时间）
 	bHasSyncedTime = true;
 	ClientReportServerTime(TimeOfClientRequest, ServerTimeOfReceipt);
+}
+
+// P4 持久身份：服务器收到客户端上报的 PlayerId → 存入 PlayerState，
+// 比赛结算时 BombDefusalGameMode 读取并写入 SQLite。仅存数据，不做校验（写入时才校验）。
+void ABlasterPlayerController::ServerSetPlayerId_Implementation(const FString& InPlayerId)
+{
+	// GetPlayerState 是模板方法，需显式指定类型
+	if (ABlasterPlayerState* PS = GetPlayerState<ABlasterPlayerState>())
+	{
+		PS->SetPlayerId(InPlayerId);
+	}
 }
 
 void ABlasterPlayerController::ClientReportServerTime_Implementation(float TimeOfClientRequest, float TimeServerReceivedClientRequest)
