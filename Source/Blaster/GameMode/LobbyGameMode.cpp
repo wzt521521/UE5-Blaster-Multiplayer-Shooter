@@ -2,11 +2,14 @@
 
 
 #include "LobbyGameMode.h"
+#include "OnlineSubsystem.h"
+#include "OnlineSessionSettings.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"       // GetPlayerName
 #include "Blaster/BlasterTypes/MatchState.h" // LeavingMap 常量
 
 DEFINE_LOG_CATEGORY(LogLobby);
+DEFINE_LOG_CATEGORY(LogServerSession);
 
 // ===== LIFECYCLE =====
 
@@ -14,6 +17,128 @@ ALobbyGameMode::ALobbyGameMode()
 {
     UE_LOG(LogLobby, Log, TEXT("[LobbyGameMode] Constructor — CDO created, bUseSeamlessTravel=%d, AimPeople=%d, GameMapPath=%s"),
         bUseSeamlessTravel, AimPeople, *GameMapPath);
+
+    // 绑定 DS 端建会话的异步回调
+    ServerCreateSessionCompleteDelegate =
+        FOnCreateSessionCompleteDelegate::CreateUObject(this, &ALobbyGameMode::OnServerSessionCreated);
+}
+
+void ALobbyGameMode::BeginPlay()
+{
+    Super::BeginPlay();
+
+    // 只有真正的 Dedicated Server 进程才需要建会话（PIE/客户端不建）
+    if (GetNetMode() == NM_DedicatedServer)
+    {
+        CreateServerSession();
+    }
+    else
+    {
+        UE_LOG(LogServerSession, Log,
+            TEXT("[ServerSession] NetMode=%d（非 DedicatedServer），跳过创建会话"),
+            (int32)GetNetMode());
+    }
+}
+
+// ===== DS 端会话创建 =====
+void ALobbyGameMode::CreateServerSession()
+{
+    IOnlineSubsystem* OSS = IOnlineSubsystem::Get();
+    if (!OSS)
+    {
+        UE_LOG(LogServerSession, Error,
+            TEXT("[ServerSession] CreateSession ABORT | OnlineSubsystem 为 null（Steam 未运行？已回退 NULL）"));
+        return;
+    }
+
+    IOnlineSessionPtr SessionInterface = OSS->GetSessionInterface();
+    if (!SessionInterface.IsValid())
+    {
+        UE_LOG(LogServerSession, Error,
+            TEXT("[ServerSession] CreateSession ABORT | SessionInterface 无效"));
+        return;
+    }
+
+    const FString OSSName = OSS->GetSubsystemName().ToString();
+    UE_LOG(LogServerSession, Warning,
+        TEXT("[ServerSession] CreateSession ENTER | OSS=%s | 当前为 Dedicated Server"),
+        *OSSName);
+
+    // 已有同名会话先销毁，避免重进 Lobby 时重复创建
+    if (SessionInterface->GetNamedSession(NAME_GameSession) != nullptr)
+    {
+        SessionInterface->DestroySession(NAME_GameSession);
+    }
+
+    // 注册异步回调：创建完成后进入 OnServerSessionCreated
+    ServerCreateSessionCompleteDelegateHandle =
+        SessionInterface->AddOnCreateSessionCompleteDelegate_Handle(ServerCreateSessionCompleteDelegate);
+
+    // 会话设置：LAN 会话（bIsLANMatch=true），同一台机器上 Steam/NULL 客户端都能用 LAN 发现
+    TSharedRef<FOnlineSessionSettings> Settings = MakeShared<FOnlineSessionSettings>();
+    const bool bIsNULL = (OSSName == TEXT("NULL"));
+    Settings->bIsLANMatch = true;              // LAN 会话 → 启动 LAN beacon（Steam 走 CreateLANSession）
+    Settings->bIsDedicated = true;             // 标记为 Dedicated Server
+    Settings->NumPublicConnections = 4;
+    Settings->bAllowJoinInProgress = true;
+    Settings->bAllowJoinViaPresence = true;
+    Settings->bShouldAdvertise = true;         // 必须 true，否则不启动 LAN beacon
+    Settings->bUsesPresence = false;           // 服务器不参与 Presence 搜索
+    Settings->bUseLobbiesIfAvailable = false;  // DS → 游戏服务器/LAN，不是 Steam Lobby
+    Settings->BuildUniqueId = 1;
+    Settings->Set(FName("MatchType"), FString(TEXT("FreeForAll")), EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
+
+    UE_LOG(LogServerSession, Warning,
+        TEXT("[ServerSession] Settings: OSS=%s | bIsLAN=1 | bIsDedicated=1 | NumPublic=%d | MatchType=FreeForAll | bAdvertise=1 | bNULL=%d"),
+        *OSSName, Settings->NumPublicConnections, bIsNULL);
+
+    // 用 HostingPlayerNum 重载（0），不需要 LocalPlayer —— DS 上本就没有本地玩家
+    // 注意：*Settings 显式解引用 TSharedRef，避免重载决议时无法转换
+    const bool bResult = SessionInterface->CreateSession(0, NAME_GameSession, *Settings);
+    if (!bResult)
+    {
+        UE_LOG(LogServerSession, Error,
+            TEXT("[ServerSession] CreateSession FAILED | 同步调用返回 false"));
+        SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle(ServerCreateSessionCompleteDelegateHandle);
+    }
+    else
+    {
+        UE_LOG(LogServerSession, Warning,
+            TEXT("[ServerSession] CreateSession | 请求已发出，等待回调..."));
+    }
+}
+
+void ALobbyGameMode::OnServerSessionCreated(FName SessionName, bool bWasSuccessful)
+{
+    if (IOnlineSubsystem* OSS = IOnlineSubsystem::Get())
+    {
+        OSS->GetSessionInterface()->ClearOnCreateSessionCompleteDelegate_Handle(ServerCreateSessionCompleteDelegateHandle);
+    }
+    UE_LOG(LogServerSession, Warning,
+        TEXT("[ServerSession] OnCreateSessionComplete CALLBACK | SessionName=%s | Success=%d"),
+        *SessionName.ToString(), bWasSuccessful);
+
+    // 诊断：确认建成会话的 MatchType / NumOpen，便于和客户端收到的一致比对
+    if (bWasSuccessful)
+    {
+        if (IOnlineSubsystem* OSS = IOnlineSubsystem::Get())
+        {
+            FNamedOnlineSession* Sess = OSS->GetSessionInterface()->GetNamedSession(SessionName);
+            if (Sess)
+            {
+                FString MT;
+                Sess->SessionSettings.Get(FName("MatchType"), MT);
+                UE_LOG(LogServerSession, Warning,
+                    TEXT("[ServerSession] 确认会话 | Owner=%s | MatchType=%s | NumOpen=%d/%d | bIsLAN=%d | bAdvertise=%d"),
+                    *Sess->OwningUserName,
+                    *MT,
+                    Sess->NumOpenPublicConnections,
+                    Sess->SessionSettings.NumPublicConnections,
+                    Sess->SessionSettings.bIsLANMatch,
+                    Sess->SessionSettings.bShouldAdvertise);
+            }
+        }
+    }
 }
 
 void ALobbyGameMode::InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage)

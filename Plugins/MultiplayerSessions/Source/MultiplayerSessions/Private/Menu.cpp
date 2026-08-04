@@ -131,20 +131,34 @@ bool UMenu::Initialize()
 void UMenu::HostButtonClicked()
 {
     UE_LOG(LogMultiplayerSessions, Warning,
-        TEXT("[Menu] HostButton CLICKED | Disabling button → CreateSession(%d, %s)"),
-        NumPublicConnections, *MatchType);
+        TEXT("[Menu] HostButton CLICKED | Disabling button | bDedicated=%d"),
+        bIsDedicatedServer);
 
     HostButton->SetIsEnabled(false);
 
-    if (MultiplayerSessionsSubsystem)
+    if (!MultiplayerSessionsSubsystem)
     {
-        MultiplayerSessionsSubsystem->CreateSession(NumPublicConnections, MatchType, bIsDedicatedServer);
+        UE_LOG(LogMultiplayerSessions, Error,
+            TEXT("[Menu] HostButton | Subsystem is null! Cannot proceed."));
+        HostButton->SetIsEnabled(true);
+        return;
+    }
+
+    if (bIsDedicatedServer)
+    {
+        // ★ DS 模式：房由 DS 进程托管（LobbyGameMode 启动时自动建 LAN 会话）。
+        // 「开房」= 找到 DS 的会话并加入 → 客户端落地到 DS 托管的大厅并等待（即用户期望的「开房→跳 Lobby 等待」）。
+        UE_LOG(LogMultiplayerSessions, Warning,
+            TEXT("[Menu] HostButton | DS 模式：房由 DS 托管，开房=加入 DS → FindSessions(10000, dedicated)"));
+        MultiplayerSessionsSubsystem->FindSessions(10000, /*bSearchDedicated=*/true);
     }
     else
     {
-        UE_LOG(LogMultiplayerSessions, Error,
-            TEXT("[Menu] HostButton | Subsystem is null! Cannot create session."));
-        HostButton->SetIsEnabled(true);
+        // Listen Server 模式：本客户端成为房主，创建会话成功后 ServerTravel 到 Lobby
+        UE_LOG(LogMultiplayerSessions, Warning,
+            TEXT("[Menu] HostButton | Listen 模式：CreateSession(%d, %s, false)"),
+            NumPublicConnections, *MatchType);
+        MultiplayerSessionsSubsystem->CreateSession(NumPublicConnections, MatchType, /*bIsDedicatedServer=*/false);
     }
 }
 
@@ -164,7 +178,8 @@ void UMenu::JoinButtonClicked()
 
     if (MultiplayerSessionsSubsystem)
     {
-        MultiplayerSessionsSubsystem->FindSessions(10000);
+        // DS 模式按 LAN 搜 DS 的会话；Listen 模式按互联网搜 Lobby
+        MultiplayerSessionsSubsystem->FindSessions(10000, bIsDedicatedServer);
     }
     else
     {
@@ -200,24 +215,23 @@ void UMenu::OnCreateSession(bool bWasSuccessful)
 
     if (bWasSuccessful)
     {
-        // DS 模式：会话创建成功即完成（DS 进程独立运行，客户端通过 Join 加入）
-        // Listen Server 模式：ServerTravel 到地图，玩家自己成为服务器
+        // DS 模式 vs Listen Server 模式：
+        //   - DS：会话由 DS 进程创建（LobbyGameMode 自动建 LAN 会话），客户端不应再 CreateSession，
+        //     这里仅作防御分支：若外部仍调用了 CreateSession，不 ServerTravel（DS 不托管客户端）
+        //   - Listen Server：ServerTravel(?listen) 打开地图，玩家成为主机
         if (bIsDedicatedServer)
         {
             UE_LOG(LogMultiplayerSessions, Warning,
-                TEXT("[Menu] OnCreateSession SUCCESS | bDedicated=1 | Session advertised, waiting for players"));
+                TEXT("[Menu] OnCreateSession SUCCESS | bDedicated=1 | 防御分支：DS 模式下会话应由 DS 创建，客户端不托管、不 ServerTravel"));
+            MenuTearDown();
         }
         else
         {
             UE_LOG(LogMultiplayerSessions, Warning,
                 TEXT("[Menu] OnCreateSession SUCCESS | bDedicated=0 | MenuTearDown → ServerTravel(%s)"),
                 *PathToLobby);
-        }
+            MenuTearDown();
 
-        MenuTearDown();
-
-        if (!bIsDedicatedServer)
-        {
             UWorld* World = GetWorld();
             if (World)
             {
@@ -292,19 +306,38 @@ void UMenu::OnFindSessions(const TArray<FOnlineSessionSearchResult>& SessionResu
         Result.Session.SessionSettings.Get(FName("MatchType"), SettingValue);
 
         UE_LOG(LogMultiplayerSessions, Log,
-            TEXT("[Menu] OnFindSessions | [%d/%d] Owner=%s | MatchType=%s | Ping=%d | NumOpen=%d"),
+            TEXT("[Menu] OnFindSessions | [%d/%d] Owner=%s | MatchType=%s | Ping=%d | NumOpen=%d | NumPublic=%d"),
             i + 1, SessionResults.Num(),
             *Result.Session.OwningUserName,
             *SettingValue,
             Result.PingInMs,
-            Result.Session.NumOpenPublicConnections);
+            Result.Session.NumOpenPublicConnections,
+            Result.Session.SessionSettings.NumPublicConnections);
 
-        if (GEngine)
+        // 诊断：打印该会话的所有自定义设置，确认 LAN beacon 到底传了哪些字段
+        for (const auto& Pair : Result.Session.SessionSettings.Settings)
         {
-            GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan,
-                FString::Printf(TEXT("  Session has MatchType: %s"), *SettingValue));
+            UE_LOG(LogMultiplayerSessions, Warning,
+                TEXT("[Menu] OnFindSessions | [%d] Setting: %s = %s (Advert=%d)"),
+                i, *Pair.Key.ToString(), *Pair.Value.Data.ToString(), (int32)Pair.Value.AdvertisementType);
         }
 
+        // ★ DS 模式：只有 DS 一个会话，跳过 MatchType 过滤，直接加入第一个（LAN beacon 可能不带自定义设置）
+        if (bIsDedicatedServer)
+        {
+            UE_LOG(LogMultiplayerSessions, Warning,
+                TEXT("[Menu] OnFindSessions | DS 模式：跳过 MatchType 过滤，直接加入第 %d 个会话 | Owner=%s | Ping=%d"),
+                i + 1, *Result.Session.OwningUserName, Result.PingInMs);
+            if (GEngine)
+            {
+                GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green,
+                    TEXT("DS session found! Joining..."));
+            }
+            MultiplayerSessionsSubsystem->JoinSession(Result);
+            return;
+        }
+
+        // Listen 模式：按 MatchType 过滤后再加入
         if (SettingValue == MatchType)
         {
             UE_LOG(LogMultiplayerSessions, Warning,

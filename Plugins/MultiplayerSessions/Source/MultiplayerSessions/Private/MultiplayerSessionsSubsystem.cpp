@@ -18,13 +18,20 @@ UMultiplayerSessionsSubsystem::UMultiplayerSessionsSubsystem() :
     StartSessionCompleteDelegate(FOnStartSessionCompleteDelegate::CreateUObject(this, &UMultiplayerSessionsSubsystem::OnStartSessionComplete))
 {
     IOnlineSubsystem* Subsystem = IOnlineSubsystem::Get();
+
+    // 读取配置中的 SteamDevAppId，便于判断是否按预期走了 Steam
+    int32 SteamDevAppId = 0;
+    GConfig->GetInt(TEXT("OnlineSubsystemSteam"), TEXT("SteamDevAppId"), SteamDevAppId, GEngineIni);
+
     if (Subsystem)
     {
         SessionInterface = Subsystem->GetSessionInterface();
-        UE_LOG(LogMultiplayerSessions, Log,
-            TEXT("[Subsystem] Init | OSS=%s | SessionInterface=%s"),
+        // ★ 核心诊断：OSS=Steam 才正常；OSS=NULL 说明 Steam 初始化失败，UE 引擎静默回退到 NULL OSS
+        UE_LOG(LogMultiplayerSessions, Warning,
+            TEXT("[Subsystem] Init | OSS=%s | SessionInterface=%s | SteamDevAppId=%d   <-- OSS=NULL 代表 Steam 加载失败已回退!"),
             *Subsystem->GetSubsystemName().ToString(),
-            SessionInterface.IsValid() ? TEXT("Valid") : TEXT("INVALID"));
+            SessionInterface.IsValid() ? TEXT("Valid") : TEXT("INVALID"),
+            SteamDevAppId);
     }
     else
     {
@@ -43,6 +50,11 @@ void UMultiplayerSessionsSubsystem::CreateSession(int32 NumPublicConnections, FS
     UE_LOG(LogMultiplayerSessions, Warning,
         TEXT("[Subsystem] CreateSession ENTER | NumPublicConnections=%d | MatchType=%s | bIsDedicated=%d"),
         NumPublicConnections, *MatchType, bIsDedicatedServer);
+
+    // ★ 每次创建会话都明确打印当前 OSS：NULL=Steam 未加载(只能 LAN 发现，PIE 内必然 0 结果)
+    UE_LOG(LogMultiplayerSessions, Warning,
+        TEXT("[Subsystem] CreateSession | 当前 OSS = %s  <-- 必须为 Steam，否则联机发现必然失败"),
+        IOnlineSubsystem::Get() ? *IOnlineSubsystem::Get()->GetSubsystemName().ToString() : TEXT("nullptr"));
 
     if (!SessionInterface.IsValid())
     {
@@ -71,22 +83,27 @@ void UMultiplayerSessionsSubsystem::CreateSession(int32 NumPublicConnections, FS
         TEXT("[Subsystem] CreateSession | Delegate registered"));
 
     // 填充会话设置
-    const bool bIsLAN = (IOnlineSubsystem::Get()->GetSubsystemName() == "NULL");
+    const bool bIsNULL_OSS = (IOnlineSubsystem::Get()->GetSubsystemName() == "NULL");
+    // NULL OSS（编辑器内测试）只能走 LAN Beacon 发现，不存在 Steam Master Server，
+    // bIsDedicated/bUseLobbiesIfAvailable 仅对真实 OSS（Steam/EOS）有意义，NULL 下保持 false/true
+    const bool bIsDedicatedSetting = bIsNULL_OSS ? false : bIsDedicatedServer;
+    const bool bUseLobbies = bIsNULL_OSS ? true : !bIsDedicatedServer;
+
     LastSessionSettings = MakeShareable(new FOnlineSessionSettings());
-    LastSessionSettings->bIsLANMatch = bIsLAN;
-    LastSessionSettings->bIsDedicated = bIsDedicatedServer;            // DS 标记：Steam 服务器列表区分类别
+    LastSessionSettings->bIsLANMatch = bIsNULL_OSS;                    // NULL OSS → LAN；Steam → 互联网
+    LastSessionSettings->bIsDedicated = bIsDedicatedSetting;           // NULL OSS 无 Master Server，不标记 Dedicated
     LastSessionSettings->NumPublicConnections = NumPublicConnections;
     LastSessionSettings->bAllowJoinInProgress = true;
     LastSessionSettings->bAllowJoinViaPresence = true;
-    LastSessionSettings->bShouldAdvertise = true;                      // Steam 服务器列表可见
+    LastSessionSettings->bShouldAdvertise = true;                      // 服务器列表可见（Steam）或 LAN 广播（NULL）
     LastSessionSettings->bUsesPresence = true;                         // 好友可通过 Presence 发现
-    LastSessionSettings->bUseLobbiesIfAvailable = !bIsDedicatedServer; // DS 不使用 Lobby，走经典服务器列表
+    LastSessionSettings->bUseLobbiesIfAvailable = bUseLobbies;         // NULL OSS 不用 Lobby（无此功能）
     LastSessionSettings->BuildUniqueId = 1;                            // 确保每次创建的会话 ID 不同
     LastSessionSettings->Set(FName("MatchType"), MatchType, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
 
     UE_LOG(LogMultiplayerSessions, Warning,
-        TEXT("[Subsystem] CreateSession | Settings: bIsLAN=%d | bIsDedicated=%d | NumPublic=%d | bAdvertise=%d | bPresence=%d | bLobbies=%d | BuildId=%d"),
-        bIsLAN, bIsDedicatedServer, NumPublicConnections,
+        TEXT("[Subsystem] CreateSession | Settings: bIsLAN=%d | bIsDedicated=%d(raw=%d) | NumPublic=%d | bAdvertise=%d | bPresence=%d | bLobbies=%d | BuildId=%d"),
+        bIsNULL_OSS, bIsDedicatedSetting, bIsDedicatedServer, NumPublicConnections,
         LastSessionSettings->bShouldAdvertise,
         LastSessionSettings->bUsesPresence,
         LastSessionSettings->bUseLobbiesIfAvailable,
@@ -121,10 +138,15 @@ void UMultiplayerSessionsSubsystem::CreateSession(int32 NumPublicConnections, FS
 }
 
 // ===== FIND SESSIONS =====
-void UMultiplayerSessionsSubsystem::FindSessions(int32 MaxSearchResults)
+void UMultiplayerSessionsSubsystem::FindSessions(int32 MaxSearchResults, bool bSearchDedicated)
 {
     UE_LOG(LogMultiplayerSessions, Warning,
-        TEXT("[Subsystem] FindSessions ENTER | MaxSearchResults=%d"), MaxSearchResults);
+        TEXT("[Subsystem] FindSessions ENTER | MaxSearchResults=%d | bSearchDedicated=%d"), MaxSearchResults, bSearchDedicated);
+
+    // ★ 同 CreateSession：打印当前 OSS，判断是 Steam 还是 NULL 回退
+    UE_LOG(LogMultiplayerSessions, Warning,
+        TEXT("[Subsystem] FindSessions | 当前 OSS = %s  <-- 必须为 Steam"),
+        IOnlineSubsystem::Get() ? *IOnlineSubsystem::Get()->GetSubsystemName().ToString() : TEXT("nullptr"));
 
     if (!SessionInterface.IsValid())
     {
@@ -144,15 +166,21 @@ void UMultiplayerSessionsSubsystem::FindSessions(int32 MaxSearchResults)
         TEXT("[Subsystem] FindSessions | Delegate registered"));
 
     // 填充搜索配置
-    const bool bIsLAN = (IOnlineSubsystem::Get()->GetSubsystemName() == "NULL");
+    const bool bIsNULL_OSS = (IOnlineSubsystem::Get()->GetSubsystemName() == "NULL");
+    // ★ 搜索方式必须与目标会话类型匹配：
+    //   - DS 模式（bSearchDedicated=true）：DS 创建的是 LAN 会话（bIsLANMatch=true），客户端必须走 LAN 发现（bIsLanQuery=true）
+    //   - NULL OSS：本就走 LAN
+    //   - Listen 模式：走互联网（Steam Lobby 搜索）
+    const bool bIsLAN = bSearchDedicated || bIsNULL_OSS;
     LastSessionSearch = MakeShareable(new FOnlineSessionSearch());
     LastSessionSearch->MaxSearchResults = MaxSearchResults;
     LastSessionSearch->bIsLanQuery = bIsLAN;
+    // SEARCH_PRESENCE 保持 true：Steam 的 FindLANSession 有 Presence 才走 LAN beacon 搜索（与 DS 的 LAN beacon 匹配）
     LastSessionSearch->QuerySettings.Set(SEARCH_PRESENCE, true, EOnlineComparisonOp::Equals);
 
     UE_LOG(LogMultiplayerSessions, Warning,
-        TEXT("[Subsystem] FindSessions | Settings: bIsLanQuery=%d | MaxResults=%d | SEARCH_PRESENCE=true"),
-        bIsLAN, MaxSearchResults);
+        TEXT("[Subsystem] FindSessions | Settings: bIsLanQuery=%d | MaxResults=%d | SEARCH_PRESENCE=true | bSearchDedicated=%d"),
+        bIsLAN, MaxSearchResults, bSearchDedicated);
 
     if (GEngine)
     {

@@ -30,7 +30,8 @@ public:
 
 	// bIsDedicatedServer: true → 会话标记为 Dedicated Server（Steam 服务器列表可见）
 	void CreateSession(int32 NumPublicConnections, FString MatchType, bool bIsDedicatedServer = false);
-	void FindSessions(int32 MaxSearchResults);
+	// bSearchDedicated: true → 按 DS 模式搜索（DS 创建的是 LAN 会话，客户端必须走 LAN 发现才能找到它）
+	void FindSessions(int32 MaxSearchResults, bool bSearchDedicated = false);
 	void JoinSession(const FOnlineSessionSearchResult& SessionResult);
 	void DestroySession();
 	void StartSession();
