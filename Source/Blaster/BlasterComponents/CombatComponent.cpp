@@ -18,6 +18,68 @@
 #include "Blaster/GameState/BlasterGameState.h" // GetSSRRewindManager
 #include "Blaster/WeaponSystem/Projectile/Projectile.h"
 
+// ════════════════════════════════════════════════════════════════
+// P3 开火校验 CVars：DS 上 ~ 控制台热调，无需重编
+// 校验逻辑见 ValidateServerFire()：状态/弹药/FireDelay/冷却/时间窗/枪口/射程
+// ════════════════════════════════════════════════════════════════
+
+// 服务端开火冷却判定容差（秒）：吸收网络到达抖动，避免合法射击被误判
+TAutoConsoleVariable<float> CVarBlasterFireCooldownTolerance(
+	TEXT("blaster.Fire.CooldownTolerance"),
+	0.05f,
+	TEXT("服务端开火冷却判定容差（秒）"),
+	ECVF_Default
+);
+
+// 拒绝未来 ClientShotTime 的容差（秒）：时钟同步有精度误差，给一点缓冲
+TAutoConsoleVariable<float> CVarBlasterFireTimeFutureTolerance(
+	TEXT("blaster.Fire.TimeFutureTolerance"),
+	0.10f,
+	TEXT("拒绝未来 ClientShotTime 的容差（秒）"),
+	ECVF_Default
+);
+
+// 拒绝过旧 ClientShotTime 的附加窗口：在 ssr.MaxPingCompensation(0.25) 基础上叠加
+// 依据：SSR 回退本身把 OneWayDelay clamp 到 [0, MaxPingCompensation]，调老时间无收益
+TAutoConsoleVariable<float> CVarBlasterFireTimePastExtra(
+	TEXT("blaster.Fire.TimePastExtra"),
+	0.05f,
+	TEXT("过去时间窗口在 ssr.MaxPingCompensation 上的附加秒数"),
+	ECVF_Default
+);
+
+// 枪口到角色最大距离（防隔墙开枪；仅 SSR 路径 ClientMuzzle 非零时校验）
+TAutoConsoleVariable<float> CVarBlasterFireMaxMuzzleDist(
+	TEXT("blaster.Fire.MaxMuzzleDist"),
+	1000.f,
+	TEXT("枪口到角色最大距离（cm），防隔墙开枪"),
+	ECVF_Default
+);
+
+// 射程校验开关（0=关 1=开）
+TAutoConsoleVariable<int32> CVarBlasterFireRangeCheckEnabled(
+	TEXT("blaster.Fire.RangeCheckEnabled"),
+	1,
+	TEXT("射程校验开关\n0=关闭 1=启用"),
+	ECVF_Default
+);
+
+// 目标到枪口最大距离（cm）：准星射线本就 80000，留出散布余量
+TAutoConsoleVariable<float> CVarBlasterFireMaxRange(
+	TEXT("blaster.Fire.MaxRange"),
+	100000.f,
+	TEXT("目标到枪口最大距离（cm）"),
+	ECVF_Default
+);
+
+// 是否拒绝 bDisableGameplayInput 状态下的开火（安包/拆包/回合准备，严格项）
+TAutoConsoleVariable<int32> CVarBlasterFireRejectWhileInputDisabled(
+	TEXT("blaster.Fire.RejectWhileInputDisabled"),
+	1,
+	TEXT("是否拒绝 bDisableGameplayInput 状态下开火\n0=放行 1=拒绝"),
+	ECVF_Default
+);
+
 UCombatComponent::UCombatComponent()
 {
 
@@ -516,7 +578,22 @@ void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& T
 
 void UCombatComponent::ServerFire_Implementation(const FVector_NetQuantize& TraceHitTarget, float FireDelay, float ClientShotTime, const FVector_NetQuantize& ClientMuzzle)
 {
-	if (!Character || !EquippedWeapon) return;
+	// ── P3 服务器端校验：令牌桶限频 + 参数校验（先于一切处理，拒绝伪造射击）──
+	if (!Character) return;
+
+	// 1) 令牌桶限频：恶意客户端绕过客户端 bCanFire 后能以任意频率刷包，服务端必须自行限频
+	if (!FireRateBucket.TryConsume(GetWorld()->GetTimeSeconds()))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ServerFire] RATE-LIMITED | %s | tokens=%.2f"),
+			*GetNameSafe(Character), FireRateBucket.Tokens);
+		return;
+	}
+	if (!EquippedWeapon) return;
+
+	// 2) 参数校验（状态/弹药/FireDelay/冷却/时间窗/枪口/射程），拒绝即 return 不走 SSR
+	TArray<FVector_NetQuantize> Targets;
+	Targets.Add(TraceHitTarget);
+	if (!ValidateServerFire(FireDelay, ClientShotTime, ClientMuzzle, Targets)) return;
 
 	// ── SSR 延迟补偿命中判定（先于 MulticastFire，避免二次伤害）──
 	AHitScanWeapon* HSWeapon = Cast<AHitScanWeapon>(EquippedWeapon);
@@ -547,7 +624,20 @@ void UCombatComponent::ServerFire_Implementation(const FVector_NetQuantize& Trac
 
 void UCombatComponent::ServerShotgunFire_Implementation(const TArray<FVector_NetQuantize>& TraceHitTargets, float FireDelay, float ClientShotTime, const FVector_NetQuantize& ClientMuzzle)
 {
-	if (!Character || !EquippedWeapon) return;
+	// ── P3 服务器端校验：令牌桶限频 + 参数校验（与 ServerFire 同款）──
+	if (!Character) return;
+
+	// 1) 令牌桶限频：与 ServerFire 共用同一桶（同一时刻只装备一把武器，天然互斥）
+	if (!FireRateBucket.TryConsume(GetWorld()->GetTimeSeconds()))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ServerShotgunFire] RATE-LIMITED | %s | tokens=%.2f"),
+			*GetNameSafe(Character), FireRateBucket.Tokens);
+		return;
+	}
+	if (!EquippedWeapon) return;
+
+	// 2) 参数校验，拒绝即 return 不走 SSR
+	if (!ValidateServerFire(FireDelay, ClientShotTime, ClientMuzzle, TraceHitTargets)) return;
 
 	// ── SSR 霰弹枪延迟补偿（先于 MulticastShotgunFire，避免二次伤害）──
 	AShotgun* ShotgunWeap = Cast<AShotgun>(EquippedWeapon);
@@ -602,6 +692,99 @@ void UCombatComponent::ServerShotgunFire_Implementation(const TArray<FVector_Net
 
 	// 视觉效果多播：放在 SSR 之后，bSSRHandledShot 先生效再触发 FireShotgun()
 	MulticastShotgunFire(TraceHitTargets);
+}
+
+// ── P3 服务端开火参数校验 ──
+// 在 SSR 处理之前调用，全部校验通过才返回 true。被拒绝的射击不会造成任何伤害/特效。
+// 设计原则：客户端传的一切参数都不受信任；伤害值本身来自服务端武器配置（GetDamage），
+// 但射击频率、射速参数、开火时机、枪口/目标位置都可以被伪造，需要逐项核对。
+bool UCombatComponent::ValidateServerFire(float FireDelay, float ClientShotTime,
+	const FVector_NetQuantize& ClientMuzzle,
+	const TArray<FVector_NetQuantize>& Targets)
+{
+	if (!Character || !EquippedWeapon) return false;
+
+	// 1) 状态校验：死亡 / 换弹·投掷中 / 安包·回合准备 → 拒绝
+	if (Character->IsElimmed()) return false;
+	if (CombatState != ECombatState::ECS_Unoccupied) return false;
+	if (CVarBlasterFireRejectWhileInputDisabled.GetValueOnGameThread() > 0
+		&& Character->bDisableGameplayInput) return false;
+
+	// 2) 弹药校验（服务端权威 Ammo）：空弹匣拒绝——客户端本地 IsEmpty 可被绕过
+	if (EquippedWeapon->IsEmpty()) return false;
+
+	// 3) FireDelay 一致性：客户端传的射速必须等于武器配置（篡改射速加速射击 → 拒绝）
+	if (FMath::Abs(FireDelay - EquippedWeapon->FireDelay) > 0.01f)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[FireValidation] %s FireDelay mismatch %.3f != %.3f"),
+			*GetNameSafe(Character), FireDelay, EquippedWeapon->FireDelay);
+		return false;
+	}
+
+	const float ServerNow = GetWorld()->GetTimeSeconds();
+
+	// 4) 服务端开火冷却：服务端自维护，替代客户端本地 bCanFire/FireTimer（无法绕过）
+	if (ServerNow - LastServerFireTime
+		< EquippedWeapon->FireDelay - CVarBlasterFireCooldownTolerance.GetValueOnGameThread())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[FireValidation] %s cooldown: %.3fs < %.3fs"),
+			*GetNameSafe(Character), ServerNow - LastServerFireTime, EquippedWeapon->FireDelay);
+		return false;
+	}
+
+	// 5) ClientShotTime 窗口：拒绝未来时间 / 超出 SSR 回退窗口的过去时间
+	//    未来时间=伪造（可能用回退打"未来位置"）；过旧时间=伪造（SSR 回退已被 clamp 到 0.25s，无收益）
+	//    未完成时间同步前跳过（避免热身期/刚进场误杀）
+	ABlasterPlayerController* PC = Cast<ABlasterPlayerController>(Character->GetController());
+	if (PC && PC->HasSyncedServerTime())
+	{
+		const float MaxPast = CVarSSRMaxPingCompensation.GetValueOnGameThread()
+			+ CVarBlasterFireTimePastExtra.GetValueOnGameThread();
+		if (ClientShotTime > ServerNow + CVarBlasterFireTimeFutureTolerance.GetValueOnGameThread())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[FireValidation] %s future shot time %.3f"),
+				*GetNameSafe(Character), ClientShotTime);
+			return false;
+		}
+		if (ClientShotTime < ServerNow - MaxPast)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[FireValidation] %s stale shot time %.3f"),
+				*GetNameSafe(Character), ClientShotTime);
+			return false;
+		}
+	}
+
+	// 6) 枪口合理性（仅 SSR 路径 ClientMuzzle 非零时）：枪口必须贴近角色（防隔墙开枪）
+	if (!ClientMuzzle.IsZero())
+	{
+		const float MuzzleToActorDist = (ClientMuzzle - Character->GetActorLocation()).Size();
+		if (MuzzleToActorDist > CVarBlasterFireMaxMuzzleDist.GetValueOnGameThread())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[FireValidation] %s muzzle far from actor %.0fcm"),
+				*GetNameSafe(Character), MuzzleToActorDist);
+			return false;
+		}
+	}
+
+	// 7) 射程校验（可选）：所有目标到枪口距离 ≤ 射程
+	if (CVarBlasterFireRangeCheckEnabled.GetValueOnGameThread() > 0 && !ClientMuzzle.IsZero())
+	{
+		const float MaxRange = CVarBlasterFireMaxRange.GetValueOnGameThread();
+		for (const FVector_NetQuantize& T : Targets)
+		{
+			if ((T - ClientMuzzle).Size() > MaxRange)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[FireValidation] %s target beyond range %.0fcm"),
+					*GetNameSafe(Character), (T - ClientMuzzle).Size());
+				return false;
+			}
+		}
+	}
+
+	// 全部通过 → 推进服务端冷却（仅最终放行时推进；被拒不阻塞后续合法射击）
+	LastServerFireTime = ServerNow;
+	LastServerFireClientTime = ClientShotTime;
+	return true;
 }
 
 void UCombatComponent::MulticastShotgunFire_Implementation(const TArray<FVector_NetQuantize>& TraceHitTargets)

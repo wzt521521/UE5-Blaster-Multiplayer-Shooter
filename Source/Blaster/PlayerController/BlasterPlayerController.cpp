@@ -274,6 +274,8 @@ void ABlasterPlayerController::CheckTimeSync(float DeltaTime)
 void ABlasterPlayerController::ServerRequestServerTime_Implementation(float TimeOfClientRequest)
 {
 	float ServerTimeOfReceipt = GetWorld()->GetTimeSeconds();
+	// P3 时间窗校验：收到同步请求即标记该玩家时钟可校验（客户端 GetServerTime 已基于本服务端时间）
+	bHasSyncedTime = true;
 	ClientReportServerTime(TimeOfClientRequest, ServerTimeOfReceipt);
 }
 

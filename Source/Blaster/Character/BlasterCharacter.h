@@ -10,6 +10,7 @@
 #include "Blaster/BlasterTypes/ThrowableTypes.h"
 #include "Blaster/BombMode/BombTypes.h"
 #include "Blaster/SSR/SSRTypes.h"     // FSSR_PlayerFrameEntry
+#include "Blaster/Character/BlasterCharacterMovementComponent.h" // P3 服务器端移动校验：替换默认移动组件
 #include "BlasterCharacter.generated.h"
 class ABlasterPlayerController;
 class ABlasterPlayerState;
@@ -21,7 +22,9 @@ class BLASTER_API ABlasterCharacter : public ACharacter, public IInteractWithCro
 
 public:
 
-	ABlasterCharacter();
+	// 带 FObjectInitializer 的构造：在初始化列表用 SetDefaultSubobjectClass 把默认移动组件
+	// 替换为 UBlasterCharacterMovementComponent（引擎官方换组件类方式，见 Character.h 注释）
+	ABlasterCharacter(const FObjectInitializer& ObjectInitializer);
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	//函数内部注册要复制的变量

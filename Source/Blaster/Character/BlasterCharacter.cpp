@@ -25,7 +25,11 @@
 #include "Blaster/SSR/SSR_FrameHistory.h"  // GetRelevantBoneNames()
 
 
-ABlasterCharacter::ABlasterCharacter()
+ABlasterCharacter::ABlasterCharacter(const FObjectInitializer& ObjectInitializer)
+	// P3 移动校验：把引擎默认 UCharacterMovementComponent 替换为子类。
+	// 必须用 SetDefaultSubobjectClass（不能用同名 CreateDefaultSubobject 重建，
+	// 会触发 Development 重复构造保护），这样 ACharacter 基类构造时创建的就是校验子类。
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UBlasterCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
 	PrimaryActorTick.bCanEverTick = true;
 

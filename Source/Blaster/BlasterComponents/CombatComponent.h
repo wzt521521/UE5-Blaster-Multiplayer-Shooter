@@ -34,6 +34,7 @@
 #include "Blaster/HUD/BlasterHud.h"
 #include "Blaster/WeaponSystem/Weapon/WeaponTypes.h"
 #include "Blaster/BlasterTypes/CombatState.h"
+#include "Blaster/ServerValidation/TokenBucket.h" // P3 射击 RPC 令牌桶限频
 #include "CombatComponent.generated.h"
 
 class AWeapon;
@@ -167,5 +168,20 @@ private:
 
 	// 每帧根据 bAiming 状态平滑切换相机视野（开镜/收镜）
 	void InterpFOV(float DeltaTime);
+
+	// ── P3 服务端开火校验 ──
+	// 开火参数校验 helper：全部校验通过才返回 true；false 时调用方直接 return（不走 SSR / 多播）。
+	// 必须在 SSR 处理之前调用（服务端拒绝伪造射击）。
+	// Targets：hitscan 传 1 元素数组（内含 TraceHitTarget），霰弹枪传 TraceHitTargets。
+	bool ValidateServerFire(float FireDelay, float ClientShotTime,
+		const FVector_NetQuantize& ClientMuzzle,
+		const TArray<FVector_NetQuantize>& Targets);
+
+	// 令牌桶：限 ServerFire / ServerShotgunFire 频率（两个射击 RPC 共用，同一时刻只装备一把武器，天然互斥）
+	FBlasterTokenBucket FireRateBucket;
+	// 服务端自维护的开火冷却时间（服务器世界时间）：替代客户端本地 bCanFire/FireTimer，恶意客户端无法绕过
+	float LastServerFireTime = -BIG_NUMBER;
+	// 上次合法开火的客户端时间戳：预留"按 ClientShotTime 差分判冷却、抗网络抖动"的升级路径
+	float LastServerFireClientTime = -BIG_NUMBER;
 
 };
