@@ -481,6 +481,35 @@ void ABlasterPlayerController::EnterDeathSpectator(ABlasterCharacter* Corpse)
 	ClientEnterSpectator(Corpse);
 }
 
+// P2 中途加入观战（服务器端）：BombDefusalGameMode::HandleMidRoundJoin 调用。
+// 与死亡观战（EnterDeathSpectator）区别：无死亡镜头、无团队锁定 —— 新加入者自由飞行看比赛。
+// 服务器 PC 也进入 Spectating（P1 约束：两侧一致，否则 ServerSetSpectatorLocation → ClientGotoState 拉回）。
+// 下轮重生时 OnPossess → ChangeState(NAME_Playing) 自动退出观战（P1 验证的统一路径）。
+void ABlasterPlayerController::EnterJoinSpectator()
+{
+	if (!IsInState(NAME_Spectating))
+	{
+		ChangeState(NAME_Spectating);
+	}
+	ClientEnterJoinSpectator();
+}
+
+// P2 中途加入观战（客户端执行）：自由飞行 SpectatorPawn + 隐藏角色 HUD。
+// 无死亡镜头（没死过）；SpectateTarget 保持 null → 自由飞行兜底。
+// 下轮重生时 ClientRestart → ChangeState(NAME_Playing) 退出观战 + HUD 恢复（RoundInProgress 处理器）。
+void ABlasterPlayerController::ClientEnterJoinSpectator_Implementation()
+{
+	if (IsInState(NAME_Spectating)) return;
+
+	ChangeState(NAME_Spectating);
+	bWasSpectating = true;
+	if (BlasterHud)
+	{
+		BlasterHud->HideCharacterOverlay();
+	}
+	UE_LOG(LogTemp, Log, TEXT("[Join] 中途加入者进入观战（自由飞行）| PC=%s"), *GetName());
+}
+
 // ========================================================================
 // P1 v2 观战：锁定存活同阵营队友视角
 // ========================================================================

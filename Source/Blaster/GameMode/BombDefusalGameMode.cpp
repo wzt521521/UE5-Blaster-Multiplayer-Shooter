@@ -21,6 +21,7 @@
 #include "Blaster/BombMode/BombActor.h"    // 炸弹实体（BombMode Phase 3）
 #include "Blaster/BombMode/BombSite.h"     // 埋包点（BombMode Phase 3）
 #include "Blaster/Persistence/BlasterPersistenceSubsystem.h"  // P4：比赛结算 → 异步入队写 SQLite
+#include "Blaster/Session/SessionManagerSubsystem.h"  // P2：中途加入直连 Bomb 幂等补发会话 token
 #include "EngineUtils.h"  // TActorIterator
 
 ABombDefusalGameMode::ABombDefusalGameMode()
@@ -595,6 +596,16 @@ void ABombDefusalGameMode::CleanupBodiesAndRespawn()
 			OldCharacter->Destroy();
 		}
 
+		// P2：等待参战的中途加入者（IsSpectator=true 但有队伍）重生 → 恢复活跃。
+		// 不清除会一直被 GetPlayersInLogicalTeam/ExecuteHalftimeSwap 的 IsSpectator() 过滤排除 → 吃不到经济/半场不翻转。
+		if (ABlasterPlayerState* PS = PC->GetPlayerState<ABlasterPlayerState>())
+		{
+			if (PS->IsSpectator())
+			{
+				PS->SetIsSpectator(false);
+			}
+		}
+
 		if (BestStart)
 		{
 			RestartPlayerAtPlayerStart(PC, BestStart);
@@ -647,13 +658,18 @@ void ABombDefusalGameMode::PostLogin(APlayerController* NewPlayer)
 
 	if (bTeamsAssigned)
 	{
-		// ── 经济系统要求：比赛开始后拒绝中途加入 ──
-		// 设为 ELT_None + Spectator，确保 GetActivePlayers() 不选中，Phase 3 经济遍历无污染
-		if (ABlasterPlayerState* PS = NewPlayer->GetPlayerState<ABlasterPlayerState>())
+		// ── P2 中途加入：分队伍/初始经济/进观战 ──
+		// 直连 Bomb 者没经过 Lobby，幂等补发会话 token 并下发客户端（否则客户端本地收不到，
+		// 无法落盘、将来重连出示不了 —— 与 Lobby PostLogin 的 P0 下发对称）。
+		if (UBlasterSessionManager* SessionMgr = UBlasterSessionManager::Get())
 		{
-			PS->SetLogicalTeam(ELogicalTeam::ELT_None);
-			PS->SetIsSpectator(true);
+			const FString Token = SessionMgr->IssueToken(NewPlayer);
+			if (ABlasterPlayerController* BPC = Cast<ABlasterPlayerController>(NewPlayer))
+			{
+				BPC->ClientReceiveSessionToken(Token);
+			}
 		}
+		HandleMidRoundJoin(NewPlayer);
 	}
 	// else：比赛未开始，AssignTeamsOnce 时统一分配
 }
@@ -669,22 +685,38 @@ void ABombDefusalGameMode::HandleMidRoundJoin(APlayerController* NewPlayer)
 	ABlasterPlayerState* PS = NewPlayer->GetPlayerState<ABlasterPlayerState>();
 	if (!PS) return;
 
-	// 按阵营总人数分配到人少的一方（保持双方平衡）
+	// ① 分到人少阵营（保持双方平衡）
 	int32 AtkCount = GetPlayersInTeam(ETeamID::ETI_Attacker).Num();
 	int32 DefCount = GetPlayersInTeam(ETeamID::ETI_Defender).Num();
 	ETeamID AssignedTeam = (AtkCount <= DefCount)
 		? ETeamID::ETI_Attacker : ETeamID::ETI_Defender;
 	PS->SetTeamID(AssignedTeam);
 
+	// ② 逻辑队伍（按半场映射角色→逻辑队，与经济归集一致 —— 半场后新加入按当前半场映射）
+	PS->SetLogicalTeam(GetLogicalTeamFromRole(AssignedTeam));
+
+	// ③ 初始经济 $200（与开局玩家一致，不带累计 —— 新加入 vs 重连的核心区别）
+	if (BlasterGameState && BlasterGameState->EconomyConfig)
+	{
+		PS->Money = BlasterGameState->EconomyConfig->StartingMoney;
+	}
+
+	// ④ 等待期标记观战（不算活跃、不吃经济；下轮重生时 CleanupBodiesAndRespawn 清除）
+	PS->SetIsSpectator(true);
+
 	if (MatchState == MatchState::RoundInProgress)
 	{
-		// 回合进行中不生成 Pawn → 旁观到下回合开始
-		// AliveCount 不递增（尚未生成 Pawn，不参与当前回合）
+		// ⑤ 回合进行中 → 进观战（自由飞行），下轮 CleanupBodiesAndRespawn 重生参战
+		if (ABlasterPlayerController* BPC = Cast<ABlasterPlayerController>(NewPlayer))
+		{
+			BPC->EnterJoinSpectator();
+		}
 	}
 	else
 	{
+		// 非战斗期 → 立即生成参战（清除观战标记，恢复活跃/经济）
+		PS->SetIsSpectator(false);
 		RestartPlayer(NewPlayer);
-		// 下回合 CleanupBodiesAndRespawn 时 AliveCount 按 GetPlayersInTeam 重置
 	}
 }
 

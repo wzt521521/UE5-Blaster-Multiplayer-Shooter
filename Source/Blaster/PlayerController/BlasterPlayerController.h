@@ -97,6 +97,15 @@ void SetHUDMatchCountdown(float CountdownTime);
 	// 尸体 3s 后由 BlasterCharacter::DestroyCorpse 销毁（本函数不销毁）。
 	void EnterDeathSpectator(ABlasterCharacter* Corpse);
 
+	// P2 中途加入观战（服务器端，BombDefusalGameMode::HandleMidRoundJoin 调用）：
+	// 与死亡观战不同：无死亡镜头、无团队锁定 —— 新加入者自由飞行看比赛（中立观察者）。
+	// 服务器 PC 也进入 Spectating（P1 约束：两侧一致，否则 ClientGotoState 拉回）。
+	void EnterJoinSpectator();
+
+	// P2 中途加入观战 Client RPC：客户端本地进入观战状态 → 自由飞行 SpectatorPawn + 隐藏 HUD。
+	UFUNCTION(Client, Reliable)
+	void ClientEnterJoinSpectator();
+
 	// ── 炸弹 UI 推送（BombMode Phase 4）──
 	void UpdateBombStatusUI(float RemainingTime, float TotalTime, const FString& StatusText, const FString& SiteName);
 	void UpdateBombInteractUI(float Progress, const FString& PromptText, bool bVisible, bool bShowProgress = false);
