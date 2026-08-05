@@ -143,6 +143,22 @@ void ABlasterPlayerController::Tick(float DeltaTime)
 		SetViewTarget(GetSpectatorPawn());
 	}
 
+	// P1 方案2·正常第三人称环绕：相机在队友身后固定距离，观战者转视角时环绕队友。
+	// 位置 = 队友位置 - 观战者视角方向 × OrbitDistance（600，与正常游戏相机 TargetArmLength 一致）
+	// 相机点随视角方向移动 → 队友始终在画面中心，视角自由环绕，画面=正常第三人称。
+	// ⚠ ADefaultPawn（SpectatorPawn 基类）无相机组件，相机即自身位置，故直接定位到目标相机点（无嵌入）。
+	// 队友位置是服务器复制的（客户端已有最新值），纯本地操作，无网络/物理开销。
+	// 死亡镜头阶段不锚定（视角锁尸体）；无存活队友时不锚定（自由飞行）。
+	if (bWasSpectating && !bDeathCamPhase && SpectateTarget.IsValid() && GetSpectatorPawn())
+	{
+		const float OrbitDistance = 300.f;   // 身后距离（比正常相机近，观战更贴近）
+		const float HeightOffset  = 100.f;   // 抬高（略俯视队友）
+		const FVector AnchorPos = SpectateTarget->GetActorLocation()
+			- GetSpectatorPawn()->GetActorForwardVector() * OrbitDistance
+			+ FVector(0.f, 0.f, HeightOffset);
+		GetSpectatorPawn()->SetActorLocation(AnchorPos);
+	}
+
 	// 炸弹状态 HUD：检查是否有已安放的炸弹 → 推送倒计时和点位名
 	UpdateBombStatusFromWorld();
 }
@@ -437,6 +453,14 @@ void ABlasterPlayerController::ClientEnterSpectator_Implementation(ABlasterChara
 	{
 		SetViewTarget(Corpse);
 	}
+
+	// P1 观战 HUD：隐藏自己角色的战斗 HUD（血条/护盾/弹药），切换到观战状态。
+	// 重生后由 MatchState 流程（RoundInProgress → HandleRoundInProgress → ShowCharacterOverlay）恢复。
+	if (BlasterHud)
+	{
+		BlasterHud->HideCharacterOverlay();
+		UE_LOG(LogTemp, Log, TEXT("[Spectate] 客户端隐藏角色 HUD（进入观战状态）| PC=%s"), *GetName());
+	}
 }
 
 // P1 死亡观战（服务器端）：GameMode::OnPlayerKilled 调用，Corpse = 死亡角色。
@@ -515,10 +539,15 @@ void ABlasterPlayerController::UpdateSpectateTarget()
 		return;
 	}
 
-	// 锁定第一个存活队友
+	// 锁定第一个存活队友（方案2：锚定自由视角）。
+	// 视角用观战者自己的 SpectatorPawn（自由相机，鼠标控角度），Tick 每帧把其位置锚定到队友 → 跟随但不锁视角。
+	// 不用 SetViewTarget(队友)—— 模拟角色的相机角度在别的客户端不同步，会导致角度锁死（见 P1 讨论）。
 	SpectateTarget = AliveTeammates[0];
-	SetViewTarget(SpectateTarget.Get());
-	UE_LOG(LogTemp, Log, TEXT("[Spectate] 观战锁定队友 %s | Team=%d | PC=%s"),
+	if (GetSpectatorPawn())
+	{
+		SetViewTarget(GetSpectatorPawn());
+	}
+	UE_LOG(LogTemp, Log, TEXT("[Spectate] 观战锁定队友 %s（锚定自由视角）| Team=%d | PC=%s"),
 		*GetNameSafe(SpectateTarget.Get()),
 		(int32)GetPlayerState<ABlasterPlayerState>()->TeamID,
 		*GetName());
@@ -534,10 +563,14 @@ void ABlasterPlayerController::CycleSpectateTarget()
 	if (AliveTeammates.Num() == 0) return;   // 无队友不切换（自由飞行）
 
 	// 当前目标下标 → 下一个（循环）；目标不在列表（如刚死亡）→ 从 0 开始
+	// 方案2：视角保持 SpectatorPawn 不变，切换只是改锚定目标（Tick 会锚定新队友位置）。
 	const int32 NextIndex = (AliveTeammates.IndexOfByKey(SpectateTarget.Get()) + 1) % AliveTeammates.Num();
 	SpectateTarget = AliveTeammates[NextIndex];
-	SetViewTarget(SpectateTarget.Get());
-	UE_LOG(LogTemp, Log, TEXT("[Spectate] 切换到队友 %s | PC=%s"),
+	if (GetSpectatorPawn())
+	{
+		SetViewTarget(GetSpectatorPawn());
+	}
+	UE_LOG(LogTemp, Log, TEXT("[Spectate] 切换到队友 %s（锚定自由视角）| PC=%s"),
 		*GetNameSafe(SpectateTarget.Get()), *GetName());
 }
 
