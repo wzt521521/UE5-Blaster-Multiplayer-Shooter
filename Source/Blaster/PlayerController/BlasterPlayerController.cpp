@@ -44,6 +44,7 @@ void ABlasterPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 	BlasterHud = Cast<ABlasterHud>(GetHUD());
+	EnsureBlasterHud(); // 兜底：无缝切图时 ClientSetHUD RPC 可能丢失，客户端自己生成 HUD
 	//应该添加annocuncement
 	//announcement已经通过ServerCheckMatchState()由客户端独自添加
 	ServerCheckMatchState();
@@ -53,6 +54,32 @@ void ABlasterPlayerController::BeginPlay()
 	if (IsLocalController())
 	{
 		ServerSetPlayerId(FBlasterPlayerIdentity::GetPlayerId());
+	}
+}
+
+// 客户端兜底：服务器 ClientSetHUD 在无缝切图时可能未送达客户端（RPC 时序），
+// 导致 GetHUD() 仍是默认 AHUD、BlasterHud 为 null → 无 HUD。
+// 这里客户端直接加载 BP_BlasterHUD 并调用 ClientSetHUD（本地执行）生成正确 HUD。
+void ABlasterPlayerController::EnsureBlasterHud()
+{
+	if (!IsLocalController()) return;   // 仅客户端本机执行（服务器端 PC 跳过）
+	if (BlasterHud) return;             // 已有正确 HUD，无需兜底
+
+	BlasterHud = Cast<ABlasterHud>(GetHUD());
+	if (BlasterHud) return;
+
+	UClass* HudClass = StaticLoadClass(AHUD::StaticClass(), nullptr,
+		TEXT("/Game/Blueprints/HUD/BP_BlasterHUD.BP_BlasterHUD_C"));
+	if (HudClass)
+	{
+		// ClientSetHUD 是 Client RPC：客户端本地调用 = 直接执行实现（不产生网络流量），
+		// 由引擎正确设置 MyHUD 并生成指定类 HUD
+		ClientSetHUD(HudClass);
+		BlasterHud = Cast<ABlasterHud>(GetHUD());
+		if (BlasterHud)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[HUD] EnsureBlasterHud → 客户端兜底生成 BlasterHud 成功"));
+		}
 	}
 }
 
@@ -811,6 +838,7 @@ void ABlasterPlayerController::SetHUDTime()
 
 void ABlasterPlayerController::PollInit()//推送缓存数据
 {
+	EnsureBlasterHud(); // 每帧兜底：直到 BlasterHud 生成成功为止
 	if (CharacterOverlay == nullptr)
 	{
 		if (BlasterHud && BlasterHud->CharacterOverlay)

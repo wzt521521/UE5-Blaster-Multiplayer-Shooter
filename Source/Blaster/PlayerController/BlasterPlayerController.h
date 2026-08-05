@@ -125,6 +125,11 @@ private:
 	UPROPERTY()
 	ABlasterHud* BlasterHud;
 
+	// 客户端兜底：无缝切图时服务器的 ClientSetHUD RPC 可能丢失（时序问题），
+	// 导致 GetHUD() 仍是默认 AHUD、BlasterHud 为 null → 无 HUD。
+	// 此方法在客户端直接加载并生成 BP_BlasterHUD，不依赖服务器 RPC。
+	void EnsureBlasterHud();
+
 	UPROPERTY()
 	class UCharacteroverlay* CharacterOverlay;
 

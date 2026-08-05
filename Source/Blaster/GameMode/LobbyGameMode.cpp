@@ -6,6 +6,7 @@
 #include "OnlineSessionSettings.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"       // GetPlayerName
+#include "GameFramework/HUD.h"               // InitGame 里打印 HUDClass 诊断需要完整 AHUD 类型
 #include "Blaster/BlasterTypes/MatchState.h" // LeavingMap 常量
 #include "Blaster/PlayerState/BlasterPlayerState.h"         // 无缝切图要求：大厅就用 Blaster 的 PS 类
 #include "Blaster/GameState/BlasterGameState.h"             // 同上：GameState 类保持一致
@@ -162,6 +163,11 @@ void ALobbyGameMode::InitGame(const FString& MapName, const FString& Options, FS
     UE_LOG(LogLobby, Warning,
         TEXT("[LobbyGameMode] InitGame | Map=%s | WorldType=%d | NetMode=%d | Options=%s | Error=%s"),
         *MapName, (int32)WT, (int32)NM, *Options, *ErrorMessage);
+
+    // 诊断：确认 GameMode 的 HUDClass（服务器通过 ClientSetHUD 传给客户端的 HUD 类）
+    UE_LOG(LogLobby, Warning,
+        TEXT("[LobbyGameMode] InitGame → HUDClass=%s"),
+        HUDClass ? *HUDClass->GetName() : TEXT("NULL"));
 
     // PIE 单进程下引擎禁止无缝切换（见 AGameModeBase::CanServerTravel），
     // 仅在非 PIE（打包/独立服务器）下启用

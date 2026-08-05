@@ -7,6 +7,7 @@
 #include "Blaster/BlasterTypes/EconomyTypes.h" // ELogicalTeam 枚举 — AssignTeamsOnce/PostLogin 直接使用
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/GameState.h"
+#include "GameFramework/HUD.h"   // InitGame 里打印 HUDClass 诊断需要完整 AHUD 类型
 #include "GameFramework/PlayerStart.h"
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
@@ -59,6 +60,11 @@ void ABombDefusalGameMode::InitGame(const FString& MapName, const FString& Optio
 	UE_LOG(LogTemp, Warning,
 		TEXT("[BombDefusalGameMode] InitGame | Map=%s | WorldType=%d | NetMode=%d | bUseSeamlessTravel=%d | Options=%s"),
 		*MapName, (int32)WT, (int32)NM, bUseSeamlessTravel, *Options);
+
+	// 诊断：确认 GameMode 的 HUDClass（服务器通过 ClientSetHUD 传给客户端的 HUD 类）
+	UE_LOG(LogTemp, Warning,
+		TEXT("[BombDefusalGameMode] InitGame → HUDClass=%s"),
+		HUDClass ? *HUDClass->GetName() : TEXT("NULL"));
 }
 
 void ABombDefusalGameMode::BeginPlay()
