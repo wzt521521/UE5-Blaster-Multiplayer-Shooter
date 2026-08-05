@@ -73,6 +73,16 @@ void SetHUDMatchCountdown(float CountdownTime);
 	UFUNCTION(Client, Reliable)
 	void ClientApplyFlashEffect(float Duration);
 
+	// ── 会话 token RPC（P6 断线重连）──
+	// 客户端重连出示：BeginPlay(IsLocalController) 调用，携带本地持久 token 请求服务器认证。
+	// 服务器只查待重连表不写 PS token（防止覆盖 PostLogin 已签发的新 token，见 P0 计划 2.5）。
+	UFUNCTION(Server, Reliable)
+	void ServerAuthenticateSession(const FString& InToken);
+
+	// 服务器签发 token 下发：LobbyGameMode::PostLogin 调用，客户端保存到本地文件（重连时出示）
+	UFUNCTION(Client, Reliable)
+	void ClientReceiveSessionToken(const FString& InToken);
+
 	// ── 炸弹 UI 推送（BombMode Phase 4）──
 	void UpdateBombStatusUI(float RemainingTime, float TotalTime, const FString& StatusText, const FString& SiteName);
 	void UpdateBombInteractUI(float Progress, const FString& PromptText, bool bVisible, bool bShowProgress = false);

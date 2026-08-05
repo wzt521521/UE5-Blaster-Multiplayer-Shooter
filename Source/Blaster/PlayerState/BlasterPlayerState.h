@@ -36,6 +36,12 @@ public:
 	void SetPlayerId(const FString& InPlayerId) { PlayerId = InPlayerId; }
 	const FString& GetPlayerId() const { return PlayerId; }
 
+	// ── 会话 token（P6 断线重连）──
+	// 服务器签发的会话凭证（FGuid），服务器权威、不复制。
+	// 用途：Logout（P3）读取此值作为待重连表 key；重连时客户端出示同一 token 定位留场状态。
+	void SetSessionToken(const FString& InToken) { SessionToken = InToken; }
+	const FString& GetSessionToken() const { return SessionToken; }
+
 	// 当前所属阵营（服务器权威修改，复制到所有客户端）
 	UPROPERTY(ReplicatedUsing = OnRep_TeamID)
 	ETeamID TeamID = ETeamID::ETI_None;
@@ -87,6 +93,12 @@ public:
 	UFUNCTION()
 	void OnRep_LogicalTeam();
 
+protected:
+	// 无缝切图（Lobby→Bomb）重建 PlayerState 时，引擎只复制标准字段（Score/Ping/名字等），
+	// 自定义的 SessionToken 默认丢失 → 重写此钩子手动带过去（见 P0 计划 2.6）。
+	// 调用链：AGameMode::HandleSeamlessTravelPlayer → PS->SeamlessTravelTo → CopyProperties。
+	virtual void CopyProperties(APlayerState* PlayerState) override;
+
 private:
 	UPROPERTY()
 	ABlasterCharacter* Character;//玩家角色——UPROPERTY 防止 Pawn 销毁后变成野指针
@@ -101,4 +113,7 @@ private:
 
 	// 客户端上报的持久玩家 ID（GUID，不复制）——比赛结算时随战绩写入 SQLite
 	FString PlayerId;
+
+	// 服务器签发的会话 token（P6，不复制，仅服务端使用）
+	FString SessionToken;
 };

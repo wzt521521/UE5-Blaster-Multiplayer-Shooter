@@ -27,6 +27,7 @@
 #include "Blaster/BombMode/BombActor.h"          // 查找已安放炸弹
 #include "Blaster/BombMode/BombSite.h"           // 读取点位名
 #include "Blaster/Persistence/PlayerIdentity.h"  // P4 持久身份：客户端本地 PlayerId
+#include "Blaster/Session/SessionManagerSubsystem.h"  // P6 会话：token 落盘/读取/待重连表查询
 #include "Kismet/GameplayStatics.h"
 
 void ABlasterPlayerController::SetupInputComponent()
@@ -54,6 +55,10 @@ void ABlasterPlayerController::BeginPlay()
 	if (IsLocalController())
 	{
 		ServerSetPlayerId(FBlasterPlayerIdentity::GetPlayerId());
+		// P6 会话：携带本地持久 token 请求认证。首次连接无 token（空串）→ 服务器忽略，
+		// 登录后由 Lobby PostLogin 签发并通过 ClientReceiveSessionToken 落盘；
+		// 断线重连时读出的旧 token 用于在待重连表中定位留场状态（P3）。
+		ServerAuthenticateSession(UBlasterSessionManager::LoadLocalToken());
 	}
 }
 
@@ -323,6 +328,40 @@ void ABlasterPlayerController::ServerSetPlayerId_Implementation(const FString& I
 	{
 		PS->SetPlayerId(InPlayerId);
 	}
+}
+
+// P6 会话认证（服务器执行）：客户端重连时出示本地 token。
+// 查 SessionManager 待重连表 → 命中表示断线留场（P3 恢复逻辑）；未命中 = 新玩家。
+// 只查表不写 PS token —— 防止把 PostLogin 已签发的新 token 冲掉（见 P0 计划 2.5）。
+void ABlasterPlayerController::ServerAuthenticateSession_Implementation(const FString& InToken)
+{
+	if (InToken.IsEmpty()) return;
+
+	ABlasterPlayerState* PS = GetPlayerState<ABlasterPlayerState>();
+	UBlasterSessionManager* Mgr = UBlasterSessionManager::Get();
+	if (!PS || !Mgr) return;
+
+	// ① 命中待重连表 → 断线重连玩家（P3 恢复：换绑 PS / Possess 留场角色 / 进观战）
+	if (FPendingSession* Pending = Mgr->FindPendingSession(InToken))
+	{
+		UE_LOG(LogTemp, Log,
+			TEXT("[Session] ServerAuthenticateSession → 命中待重连表 | PC=%s | token=%s | PS=%s"),
+			*GetName(), *InToken, *GetNameSafe(Pending->PlayerState.Get()));   // TObjectPtr 需 .Get() 取裸指针
+		// P3 在此恢复（见 P3 计划）
+		return;
+	}
+
+	// ② 未命中 → 新玩家：不覆盖 PS->SessionToken（若 PostLogin 已签发新 token 则以服务器为准）
+	UE_LOG(LogTemp, Log,
+		TEXT("[Session] ServerAuthenticateSession → 新玩家，无待重连记录 | PC=%s | token=%s"),
+		*GetName(), *InToken);
+}
+
+// P6 会话 token 下发（客户端执行）：服务器签发后推送，客户端保存到本地文件供重连出示。
+void ABlasterPlayerController::ClientReceiveSessionToken_Implementation(const FString& InToken)
+{
+	if (InToken.IsEmpty()) return;
+	UBlasterSessionManager::SaveLocalToken(InToken);
 }
 
 void ABlasterPlayerController::ClientReportServerTime_Implementation(float TimeOfClientRequest, float TimeServerReceivedClientRequest)

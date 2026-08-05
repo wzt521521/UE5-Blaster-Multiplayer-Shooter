@@ -11,6 +11,7 @@
 #include "Blaster/PlayerState/BlasterPlayerState.h"         // 无缝切图要求：大厅就用 Blaster 的 PS 类
 #include "Blaster/GameState/BlasterGameState.h"             // 同上：GameState 类保持一致
 #include "Blaster/PlayerController/BlasterPlayerController.h" // 同上：PC 类保持一致
+#include "Blaster/Session/SessionManagerSubsystem.h"         // P6 会话：登录签发 token 并下发
 
 DEFINE_LOG_CATEGORY(LogLobby);
 DEFINE_LOG_CATEGORY(LogServerSession);
@@ -198,6 +199,19 @@ void ALobbyGameMode::PostLogin(APlayerController *NewPlayer)
     UE_LOG(LogLobby, Warning,
         TEXT("[LobbyGameMode] PostLogin | Player=%s | MatchState=%s"),
         *PlayerName, *MatchState.ToString());
+
+    // ── P6 会话：签发 token 并下发客户端（重连凭证）──
+    // 每个经过大厅登录的玩家都拿到一个全局唯一 token；客户端落盘保存，
+    // 断线重连时出示同一 token 让服务器在待重连表中定位留场状态（P3）。
+    // IssueToken 幂等：若 PS 已带 token（重连/切图保留）则原样返回不覆盖（见 P0 计划 2.5）。
+    if (UBlasterSessionManager* SessionMgr = UBlasterSessionManager::Get())
+    {
+        const FString Token = SessionMgr->IssueToken(NewPlayer);
+        if (ABlasterPlayerController* BPC = Cast<ABlasterPlayerController>(NewPlayer))
+        {
+            BPC->ClientReceiveSessionToken(Token);
+        }
+    }
 
     if (!GameState)
     {

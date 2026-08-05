@@ -18,6 +18,18 @@ void ABlasterPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
     DOREPLIFETIME(ABlasterPlayerState, LogicalTeam);
 }
 
+void ABlasterPlayerState::CopyProperties(APlayerState* PlayerState)
+{
+    // 无缝切图（Lobby→Bomb）会重建 PS：先按引擎默认复制标准字段，
+    // 再把自定义 SessionToken 手动带过去（见 P0 计划 2.6）。
+    // 缺这一步 → travel 后服务器 PS 的 token 被清空，P3 Logout 无法正确做待重连 key。
+    Super::CopyProperties(PlayerState);
+    if (ABlasterPlayerState* BPS = Cast<ABlasterPlayerState>(PlayerState))
+    {
+        BPS->SessionToken = SessionToken;
+    }
+}
+
 void ABlasterPlayerState::AddToScore(float ScoreAmount)
 {
     // ————————————————————————————————————————————
