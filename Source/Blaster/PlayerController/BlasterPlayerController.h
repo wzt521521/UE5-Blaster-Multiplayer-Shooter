@@ -8,6 +8,7 @@
 #include "BlasterPlayerController.generated.h"
 
 class ABlasterHud;
+class ABlasterCharacter;
 class USoundCue;
 enum class EThrowableType : uint8;
 
@@ -83,6 +84,19 @@ void SetHUDMatchCountdown(float CountdownTime);
 	UFUNCTION(Client, Reliable)
 	void ClientReceiveSessionToken(const FString& InToken);
 
+	// P1 死亡观战 Client RPC：服务器在 OnPlayerKilled 调用，客户端本地进入观战状态，
+	// 生成自由飞行 SpectatorPawn（仅本机）。Corpse = 死亡角色（死亡镜头视角锁它，不依赖 GetPawn()，
+	// 因进入观战时 PC 已 UnPossess 尸体）。下轮重生时 ClientRestart → 自动退出观战恢复第三人称。
+	UFUNCTION(Client, Reliable)
+	void ClientEnterSpectator(ABlasterCharacter* Corpse);
+
+	// P1 死亡观战（服务器端，GameMode::OnPlayerKilled 调用）：
+	// 服务器 PC 也进入 Spectating 状态 + 下发 ClientEnterSpectator 让客户端进入。
+	// 必须两侧状态一致 —— 否则引擎的 ServerSetSpectatorLocation → ClientGotoState 会把客户端
+	// 强制同步回服务器状态（Playing），观战 ~200ms 即被拉回（P1 实测发现的坑）。
+	// 尸体 3s 后由 BlasterCharacter::DestroyCorpse 销毁（本函数不销毁）。
+	void EnterDeathSpectator(ABlasterCharacter* Corpse);
+
 	// ── 炸弹 UI 推送（BombMode Phase 4）──
 	void UpdateBombStatusUI(float RemainingTime, float TotalTime, const FString& StatusText, const FString& SiteName);
 	void UpdateBombInteractUI(float Progress, const FString& PromptText, bool bVisible, bool bShowProgress = false);
@@ -94,6 +108,7 @@ void SetHUDMatchCountdown(float CountdownTime);
 protected:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
+
 	void SetHUDTime();
 	void PollInit();
 
@@ -182,6 +197,33 @@ private:
 
 	// 投掷物径向选择面板是否正在显示，ShowThrowablePanel/HideThrowablePanel 维护此标志
 	bool bThrowablePanelOpen = false;
+
+	// P1 观战退出检测标志：ClientEnterSpectator 置 true，Tick 检测状态离开 NAME_Spectating 时记日志。
+	// 仅客户端有意义（服务器 PC 不进入观战状态，恒为 false 无副作用）。
+	bool bWasSpectating = false;
+
+	// P1 死亡镜头阶段：进入观战后先看自己尸体（视角锁在尸体上），
+	// 服务器 3s 销毁尸体 → 结束死亡镜头切队友视角/自由飞行。
+	// 该阶段屏蔽自由飞行兜底的每帧 SetViewTarget（否则会把死亡镜头抢成 SpectatorPawn 视角）。
+	bool bDeathCamPhase = false;
+
+	// 死亡镜头锁定的尸体（RPC 传入，客户端弱引用）。服务器 3s 销毁后 IsValid() 为 false
+	// → Tick 结束死亡镜头切队友视角。不能用 GetPawn()（进入观战时 PC 已 UnPossess 尸体）。
+	TWeakObjectPtr<ABlasterCharacter> DeathCamCorpse;
+
+	// ── P1 观战：锁定存活同阵营队友（客户端本地，不复制）──
+	// 当前观战锁定的队友 Pawn；nullptr = 自由飞行中（无存活队友兜底）。
+	// 视角通过客户端本地 SetViewTarget(队友Pawn) 锁定，重生 ClientRestart 自动接管。
+	TWeakObjectPtr<ABlasterCharacter> SpectateTarget;
+
+	// 收集存活同阵营队友（!IsElimmed && BlasterPlayerState->TeamID 相同；bElimmed/TeamID 均已复制）
+	TArray<ABlasterCharacter*> CollectAliveTeammates() const;
+	// 观战进入/目标死亡时调用：锁定第一个存活队友，无则自由飞行兜底
+	void UpdateSpectateTarget();
+	// 箭头键 ↑↓←→ 按下 → 切换下一个存活队友（循环）
+	void CycleSpectateTarget();
+	// 当前观战目标是否仍存活（未销毁且未 elimmed）
+	bool IsSpectateTargetAlive() const;
 
 	// 闪光弹配置已迁移到 BlasterHud
 

@@ -201,6 +201,10 @@ private:
 
 	void ElimTimerFinsished();
 
+	// Bomb 模式：死亡 ElimDelay（3s）后销毁尸体（死亡镜头结束，尸体不残留到下一回合）。
+	// 服务器权威执行（Elim 仅服务器）；先 UnPossess（尸体仍被服务器 PC Possess，见 P1 观战设计）再 Destroy。
+	void DestroyCorpse();
+
 	// 中途加入等待标记：回合进行中不生成 Pawn，下回合恢复
 	UPROPERTY(Replicated)
 	bool bWaitingForNextRound = false;

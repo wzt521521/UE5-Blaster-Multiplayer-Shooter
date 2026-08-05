@@ -13,6 +13,7 @@
 #include "Sound/SoundCue.h"
 #include "Blaster/Character/BlasterCharacter.h"
 #include "Blaster/BlasterComponents/ThrowableComponent.h"
+#include "GameFramework/SpectatorPawn.h"   // P1 观战：GetSpectatorPawn() 转 AActor* 需要完整类型
 #include "Net/UnrealNetwork.h"
 #include "Blaster/GameMode/BlasterGameMode.h"
 #include "Blaster/GameMode/BombDefusalGameMode.h"
@@ -38,6 +39,11 @@ void ABlasterPlayerController::SetupInputComponent()
 	{
 		// B 键绑定购买菜单开关，仅在热身阶段生效（ToggleBuyMenu 内部检查 MatchState）
 		InputComponent->BindAction("OpenBuyMenu", IE_Pressed, this, &ABlasterPlayerController::ToggleBuyMenu);
+
+		// P1 观战切换：箭头键 ↑↓←→ → 切换下一个存活队友（CycleSpectateTarget 内部检查观战状态）。
+		// 用 ActionMapping（DefaultInput.ini 里 SpectateSwitch 映射到 Up/Down/Left/Right），
+		// 箭头键不被 SpectatorPawn（ADefaultPawn 只绑 WASD/鼠标）占用，与自由飞行无冲突。
+		InputComponent->BindAction("SpectateSwitch", IE_Pressed, this, &ABlasterPlayerController::CycleSpectateTarget);
 	}
 }
 
@@ -99,6 +105,42 @@ void ABlasterPlayerController::Tick(float DeltaTime)
 	if (GetPlayerState<APlayerState>())
 	{
 		SetHUDPing(FMath::RoundToInt(GetPlayerState<APlayerState>()->GetPingInMilliseconds()));
+	}
+
+	// P1 观战退出检测（客户端）：重生时服务器 RestartPlayer → ClientRestart → 客户端自动
+	// ChangeState(NAME_Playing) → 状态离开 NAME_Spectating 即代表第三人称恢复。仅日志，不干预逻辑。
+	if (bWasSpectating && !IsInState(NAME_Spectating))
+	{
+		bWasSpectating = false;
+		bDeathCamPhase = false;
+		DeathCamCorpse = nullptr;
+		SpectateTarget = nullptr;   // 观战目标随退出清空（重生后由 OnPossess/ClientRestart 接管视角）
+		UE_LOG(LogTemp, Log, TEXT("[Spectate] 客户端退出观战（重生恢复第三人称）| PC=%s"), *GetName());
+	}
+
+	// P1 死亡镜头结束：服务器 3s 销毁尸体 → 客户端 DeathCamCorpse（弱引用）失效
+	// → 结束死亡镜头，切队友视角（无存活队友则自由飞行）。与尸体销毁精确同步。
+	if (bWasSpectating && bDeathCamPhase && !DeathCamCorpse.IsValid())
+	{
+		bDeathCamPhase = false;
+		DeathCamCorpse = nullptr;
+		UpdateSpectateTarget();
+	}
+
+	// P1 v2 观战：当前锁定的队友死亡/销毁 → 自动切换下一个存活队友，无则自由飞行。
+	// 死亡镜头阶段 SpectateTarget 恒为 null，不参与。
+	if (bWasSpectating && !bDeathCamPhase && SpectateTarget.IsValid() && !IsSpectateTargetAlive())
+	{
+		UpdateSpectateTarget();
+	}
+
+	// P1 v2 观战：自由飞行兜底时确保视角在 SpectatorPawn 上。
+	// SpectatorPawn 可能晚于进入观战生成（GameState->SpectatorClass 复制到达后才 BeginSpectatingState），
+	// 此时 GetSpectatorPawn() 才非空 → 每帧补一次 SetViewTarget，避免视角滞留在死尸身上。
+	// 死亡镜头阶段屏蔽（否则会把"看尸体"的视角每帧抢成 SpectatorPawn）。
+	if (bWasSpectating && !bDeathCamPhase && !SpectateTarget.IsValid() && GetSpectatorPawn() && GetViewTarget() != GetSpectatorPawn())
+	{
+		SetViewTarget(GetSpectatorPawn());
 	}
 
 	// 炸弹状态 HUD：检查是否有已安放的炸弹 → 推送倒计时和点位名
@@ -362,6 +404,147 @@ void ABlasterPlayerController::ClientReceiveSessionToken_Implementation(const FS
 {
 	if (InToken.IsEmpty()) return;
 	UBlasterSessionManager::SaveLocalToken(InToken);
+}
+
+// P1 死亡观战（客户端执行）：服务器在 OnPlayerKilled 通知，Corpse = 死亡角色。
+// 仅客户端本地进入观战状态 → BeginSpectatingState → 生成 SpectatorPawn（SetReplicates(false)，仅本机）自由飞行。
+// 不置 bIsOnlyASpectator（否则 RestartPlayer/OnPossess 拒绝重生，见 P1 计划 2.1）；
+// 不置 bIsSpectator（否则 GetPlayersInLogicalTeam/ExecuteHalftimeSwap 把死玩家当观战者，丢经济/不翻转，见 2.3）。
+// 死亡镜头先锁尸体 3s，尸体被服务器 DestroyCorpse 销毁后再切队友视角/自由飞行。
+void ABlasterPlayerController::ClientEnterSpectator_Implementation(ABlasterCharacter* Corpse)
+{
+	// 幂等：已在观战状态则不重复进入
+	if (IsInState(NAME_Spectating)) return;
+
+	// 观战 Pawn 出生点 = 死尸位置（视角从死亡点接续，而非回到出生点）
+	if (Corpse)
+	{
+		SetSpawnLocation(Corpse->GetActorLocation());
+	}
+
+	// 客户端本地进入观战状态（APlayerController::ChangeState 是 public）→ BeginSpectatingState。
+	// 重生时服务器 RestartPlayer → ClientRestart → 客户端自动 ChangeState(NAME_Playing) → 退出观战。
+	ChangeState(NAME_Spectating);
+
+	bWasSpectating = true;
+	bDeathCamPhase = true;   // 死亡镜头阶段：先看自己尸体，尸体销毁后再切队友视角
+	UE_LOG(LogTemp, Log, TEXT("[Spectate] 客户端进入观战状态（死亡镜头）| PC=%s"), *GetName());
+
+	// 死亡镜头：视角锁在自己尸体上（Corpse 由 RPC 传入 —— 进入观战时服务器已 UnPossess 尸体，
+	// 客户端 GetPawn() 可能已是 null，不能用它拿尸体）。尸体 3s 后被销毁 → DeathCamCorpse 失效 → 切队友视角。
+	DeathCamCorpse = Corpse;
+	if (Corpse)
+	{
+		SetViewTarget(Corpse);
+	}
+}
+
+// P1 死亡观战（服务器端）：GameMode::OnPlayerKilled 调用，Corpse = 死亡角色。
+// 服务器 PC 也进入 Spectating 状态 + 下发 ClientEnterSpectator。
+// 必须两侧状态一致 —— 引擎 ServerSetSpectatorLocation_Implementation（PlayerController.cpp:2871）在
+// 服务器 PC 非 Spectating 时走 else 分支 ClientGotoState(GetStateName()) 强制客户端同步回服务器状态
+// （Playing），观战 ~200ms 即被拉回（P1 实测发现的坑）。服务器进入 Spectating 后该检查通过，
+// 观战持续到下轮重生（ClientRestart 自动退出）。
+// ⚠ 不保留尸体 Possess（默认 ShouldKeepCurrentPawnUponSpectating=false）：进入观战即 UnPossess，
+//   尸体 3s 后由 BlasterCharacter::DestroyCorpse 销毁 —— 若保留 Possess，尸体销毁会触发客户端
+//   PawnPendingDestroy → ChangeState(NAME_Inactive)，把观战状态踢掉（实测发现的坑）。
+void ABlasterPlayerController::EnterDeathSpectator(ABlasterCharacter* Corpse)
+{
+	if (!IsInState(NAME_Spectating))
+	{
+		ChangeState(NAME_Spectating);
+	}
+	ClientEnterSpectator(Corpse);
+}
+
+// ========================================================================
+// P1 v2 观战：锁定存活同阵营队友视角
+// ========================================================================
+
+// 收集存活同阵营队友（客户端执行）：
+// 遍历世界 BlasterCharacter，筛 !IsElimmed() && GetPlayerState<ABlasterPlayerState>()->TeamID == 我方 TeamID。
+// ⚠ 不能用 Char->BlasterPlayerState —— 该项目该成员从未被赋值（恒为 null），实测导致永远找不到队友。
+// 改用 APawn 自带的复制属性 PlayerState（Pawn.h:154 replicatedUsing=OnRep_PlayerState，客户端有值）。
+// bElimmed / TeamID 均已复制，客户端可直接判断；自己的尸体已 elimmed 自然被排除。
+TArray<ABlasterCharacter*> ABlasterPlayerController::CollectAliveTeammates() const
+{
+	TArray<ABlasterCharacter*> Result;
+	const ABlasterPlayerState* MyPS = GetPlayerState<ABlasterPlayerState>();
+	if (!MyPS || !GetWorld()) return Result;
+
+	TArray<AActor*> FoundChars;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABlasterCharacter::StaticClass(), FoundChars);
+	for (AActor* Actor : FoundChars)
+	{
+		ABlasterCharacter* Char = Cast<ABlasterCharacter>(Actor);
+		if (!Char || Char->IsElimmed()) continue;
+		const ABlasterPlayerState* CPS = Char->GetPlayerState<ABlasterPlayerState>();
+		if (CPS && CPS->TeamID == MyPS->TeamID)
+		{
+			Result.Add(Char);
+		}
+	}
+	return Result;
+}
+
+// 观战进入 / 目标死亡时调用（客户端执行）：
+// ① 无存活队友 → SetViewTarget(SpectatorPawn) 自由飞行兜底，SpectateTarget=nullptr
+// ② 当前目标仍存活 → 保持
+// ③ 否则锁定第一个存活队友（SetViewTarget 客户端本地，观战期间服务器不推 ClientSetViewTarget，稳定）
+void ABlasterPlayerController::UpdateSpectateTarget()
+{
+	if (!IsInState(NAME_Spectating)) return;
+
+	const TArray<ABlasterCharacter*> AliveTeammates = CollectAliveTeammates();
+
+	// 无存活队友 → 自由飞行兜底
+	if (AliveTeammates.Num() == 0)
+	{
+		SpectateTarget = nullptr;
+		if (GetSpectatorPawn())
+		{
+			SetViewTarget(GetSpectatorPawn());
+		}
+		UE_LOG(LogTemp, Log, TEXT("[Spectate] 无存活队友 → 自由飞行 | PC=%s"), *GetName());
+		return;
+	}
+
+	// 当前目标仍存活 → 保持
+	if (SpectateTarget.IsValid() && AliveTeammates.Contains(SpectateTarget.Get()))
+	{
+		return;
+	}
+
+	// 锁定第一个存活队友
+	SpectateTarget = AliveTeammates[0];
+	SetViewTarget(SpectateTarget.Get());
+	UE_LOG(LogTemp, Log, TEXT("[Spectate] 观战锁定队友 %s | Team=%d | PC=%s"),
+		*GetNameSafe(SpectateTarget.Get()),
+		(int32)GetPlayerState<ABlasterPlayerState>()->TeamID,
+		*GetName());
+}
+
+// 箭头键 ↑↓←→ → 切换下一个存活队友（客户端执行，循环）。
+// 非观战状态或无存活队友（自由飞行中）时忽略。
+void ABlasterPlayerController::CycleSpectateTarget()
+{
+	if (!IsInState(NAME_Spectating)) return;
+
+	const TArray<ABlasterCharacter*> AliveTeammates = CollectAliveTeammates();
+	if (AliveTeammates.Num() == 0) return;   // 无队友不切换（自由飞行）
+
+	// 当前目标下标 → 下一个（循环）；目标不在列表（如刚死亡）→ 从 0 开始
+	const int32 NextIndex = (AliveTeammates.IndexOfByKey(SpectateTarget.Get()) + 1) % AliveTeammates.Num();
+	SpectateTarget = AliveTeammates[NextIndex];
+	SetViewTarget(SpectateTarget.Get());
+	UE_LOG(LogTemp, Log, TEXT("[Spectate] 切换到队友 %s | PC=%s"),
+		*GetNameSafe(SpectateTarget.Get()), *GetName());
+}
+
+// 当前观战目标是否仍存活（未销毁 && 未 elimmed）
+bool ABlasterPlayerController::IsSpectateTargetAlive() const
+{
+	return SpectateTarget.IsValid() && !SpectateTarget->IsElimmed();
 }
 
 void ABlasterPlayerController::ClientReportServerTime_Implementation(float TimeOfClientRequest, float TimeServerReceivedClientRequest)

@@ -9,6 +9,7 @@
 #include "GameFramework/GameState.h"
 #include "GameFramework/HUD.h"   // InitGame 里打印 HUDClass 诊断需要完整 AHUD 类型
 #include "GameFramework/PlayerStart.h"
+#include "GameFramework/SpectatorPawn.h"   // P1 观战：SpectatorClass 需要完整类型（StaticClass）
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
 #include "Engine/Engine.h"
@@ -34,6 +35,11 @@ ABombDefusalGameMode::ABombDefusalGameMode()
 	GameStateClass = ABlasterGameState::StaticClass();
 	// 无缝切图：新 PC 按本类生成（旧 PC 若为其子类则保留原类）。必须有，否则玩家没有 Blaster 输入/HUD
 	PlayerControllerClass = ABlasterPlayerController::StaticClass();
+
+	// 观战（P1）：死亡玩家用引擎默认观战 Pawn（ASpectatorPawn:ADefaultPawn 自带自由飞行相机）。
+	// 引擎 InitGameState 会把它同步到 GameState->SpectatorClass（复制属性），
+	// 客户端 SpawnSpectatorPawn 据此生成本地 SpectatorPawn（仅本机，SetReplicates(false)）。
+	SpectatorClass = ASpectatorPawn::StaticClass();
 
 	UE_LOG(LogTemp, Log, TEXT("[BombDefusalGameMode] Constructor — CDO created, bUseSeamlessTravel=%d, AimPeople=%d"),
 		bUseSeamlessTravel, AimPeople);
@@ -313,6 +319,16 @@ void ABombDefusalGameMode::OnPlayerKilled(ABlasterCharacter* DeadCharacter,
 	if (DeadCharacter)
 	{
 		DeadCharacter->Elim();
+	}
+
+	// P1 观战：死亡后进入观战（服务器 + 客户端两侧一致，见 EnterDeathSpectator 注释）。
+	// 传入 DeadCharacter：客户端死亡镜头视角锁它（3s 后由 BlasterCharacter::DestroyCorpse 销毁）。
+	// 下轮重生时 RestartPlayer → ClientRestart 自动退出观战恢复第三人称。
+	if (VictimController)
+	{
+		VictimController->EnterDeathSpectator(DeadCharacter);
+		UE_LOG(LogTemp, Log, TEXT("[Spectate] 玩家 %s 死亡 → 进入观战"),
+			*GetNameSafe(VictimController));
 	}
 
 	// 事件驱动递减存活计数器（O(1) 判定，直接写入 GameState 唯一权威源）

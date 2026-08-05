@@ -232,6 +232,30 @@ void ABlasterCharacter::Elim()
 			ElimDelay
 		);
 	}
+	else
+	{
+		// Bomb 模式：死亡 ElimDelay（3s）后销毁尸体。
+		// 配合死亡镜头：客户端看自己尸体 3s → 尸体销毁（复制到客户端）→ 切队友视角。
+		// 若不销毁，尸体残留到 CleanupBodiesAndRespawn（下回合）才消失。
+		GetWorldTimerManager().SetTimer(
+			ElimTimer,
+			this,
+			&ABlasterCharacter::DestroyCorpse,
+			ElimDelay
+		);
+	}
+}
+
+// Bomb 模式：尸体销毁（服务器权威，Elim 仅在服务器执行）。
+// 先 UnPossess（尸体仍被服务器 PC Possess —— ShouldKeepCurrentPawnUponSpectating=true 保留），
+// 再 Destroy → 复制到客户端 → 客户端 GetPawn() 变 null → 死亡镜头结束自动切队友视角。
+void ABlasterCharacter::DestroyCorpse()
+{
+	if (AController* C = Controller)
+	{
+		C->UnPossess();
+	}
+	Destroy();
 }
 
 void ABlasterCharacter::MulticastElim_Implementation()//MulticastElim只负责多播，其他逻辑由另一个Elim函数处理
