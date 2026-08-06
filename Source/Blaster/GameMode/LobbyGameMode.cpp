@@ -284,3 +284,6 @@ void ALobbyGameMode::PostLogin(APlayerController *NewPlayer)
         }
     }
 }
+
+// ===== LOGOUT / LEAVE =====
+// P3 主流方案：大厅断开玩家不注册待重连表（未参赛，重连按新玩家/中途加入处理），引擎默认 Logout 即可。

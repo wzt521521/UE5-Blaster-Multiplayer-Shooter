@@ -106,6 +106,15 @@ void SetHUDMatchCountdown(float CountdownTime);
 	UFUNCTION(Client, Reliable)
 	void ClientEnterJoinSpectator();
 
+	// P3：真实 Bomb 登录的中途加入候选（服务器侧，不复制，BombDefusalGameMode::PostLogin 置位）。
+	// Bomb PostLogin（bTeamsAssigned）置 true，ServerAuthenticateSession 新玩家分支消费后清 false。
+	// 无缝切图带过来的 PC 此标志为 false → authenticate 每图重发时不会误触发 HandleMidRoundJoin（P3 问题 1 修复）。
+	bool bIsMidJoinCandidate = false;
+
+	// P3 主流方案：断开瞬间玩家是否存活（PawnPendingDestroy 捕获）。
+	// 存活断开 → GameMode::Logout 递减 AliveCount；已死断开 → 死亡时已递减，勿重复。
+	bool bWasAliveAtDisconnect = false;
+
 	// ── 炸弹 UI 推送（BombMode Phase 4）──
 	void UpdateBombStatusUI(float RemainingTime, float TotalTime, const FString& StatusText, const FString& SiteName);
 	void UpdateBombInteractUI(float Progress, const FString& PromptText, bool bVisible, bool bShowProgress = false);
@@ -117,6 +126,12 @@ void SetHUDMatchCountdown(float CountdownTime);
 protected:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
+
+	// P3 主流方案（致命修复）：AController::Destroyed 在 Logout 后调 CleanupPlayerState → 销毁 PS。
+	// 若该 PS 已注册进待重连表（对局中断线），保留供重连换绑（经济/统计续存）；否则引擎默认销毁。
+	virtual void CleanupPlayerState() override;
+	// P3 主流方案：存活角色被断线销毁时捕获存活状态（已死尸体销毁前已 UnPossess，不走这里）
+	virtual void PawnPendingDestroy(APawn* inPawn) override;
 
 	void SetHUDTime();
 	void PollInit();

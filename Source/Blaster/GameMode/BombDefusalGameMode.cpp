@@ -227,6 +227,7 @@ void ABombDefusalGameMode::AssignTeamsOnce()
 		// ── 新增：归零 RoundKills ──
 		ActivePlayers[i]->ResetRoundKills();
 	}
+	// P3 主流方案：大厅断开玩家不纳入对局（未参赛，重连按新玩家/中途加入处理）→ 删除原"重建 Bomb PS"逻辑。
 }
 
 // ========================================================================
@@ -298,12 +299,15 @@ void ABombDefusalGameMode::OnPlayerKilled(ABlasterCharacter* DeadCharacter,
 	ABlasterPlayerController* VictimController,
 	ABlasterPlayerController* AttackerController)
 {
-	if (!VictimController || !VictimController->PlayerState) return;
+	// P3 主流方案：断线玩家角色被引擎销毁、不留在场上，不会有"无控角色被打死" → 删除原 FindPendingSessionByPawn 分支。
+	// 若 VictimController 为空则跳过（防御，正常路径都有控制器）。
+	ABlasterPlayerState* VictimPS = VictimController
+		? Cast<ABlasterPlayerState>(VictimController->PlayerState) : nullptr;
+	if (!VictimPS) return;
 
 	// 加分统计（保留计分逻辑，可用于后续经济系统）
 	ABlasterPlayerState* AttackerPS = AttackerController
 		? Cast<ABlasterPlayerState>(AttackerController->PlayerState) : nullptr;
-	ABlasterPlayerState* VictimPS = Cast<ABlasterPlayerState>(VictimController->PlayerState);
 
 	if (AttackerPS && AttackerPS != VictimPS)
 	{
@@ -504,6 +508,13 @@ void ABombDefusalGameMode::ReturnToLobby()
 	// 若不切状态，Tick 会在后续帧重复调用 ReturnToLobby
 	SetMatchState(MatchState::LeavingMap);
 
+	// P3 主流方案：对局结束回大厅 → 清空待重连表。
+	// 否则断线玩家的 PS 被强引用跨场残留：下一场重连可能命中上一场条目 → 串状态/串经济。
+	if (UBlasterSessionManager* Mgr = UBlasterSessionManager::Get())
+	{
+		Mgr->ClearPendingSessions();
+	}
+
 	const bool bTravelSuccess = World->ServerTravel(LobbyMapPath);
 	if (bTravelSuccess)
 	{
@@ -622,7 +633,10 @@ void ABombDefusalGameMode::CleanupBodiesAndRespawn()
 		}
 	}
 
-	// 重置存活计数 = 各阵营总人数（低频调用，可遍历，写入 GameState 唯一权威源）
+	// P3 主流方案：断线玩家角色被引擎销毁、不重生（重连后由 PC 遍历正常重生）→ 删除原"无控重生"逻辑。
+
+	// 重置存活计数：GetPlayersInTeam 已排除待重连表玩家（断线者没角色、不算存活），
+	// 无需再单独减 PendingAtk/Def（避免双重扣除，方案 A）。
 	if (!BlasterGameState) BlasterGameState = GetGameState<ABlasterGameState>();
 	if (BlasterGameState)
 	{
@@ -658,18 +672,14 @@ void ABombDefusalGameMode::PostLogin(APlayerController* NewPlayer)
 
 	if (bTeamsAssigned)
 	{
-		// ── P2 中途加入：分队伍/初始经济/进观战 ──
-		// 直连 Bomb 者没经过 Lobby，幂等补发会话 token 并下发客户端（否则客户端本地收不到，
-		// 无法落盘、将来重连出示不了 —— 与 Lobby PostLogin 的 P0 下发对称）。
-		if (UBlasterSessionManager* SessionMgr = UBlasterSessionManager::Get())
+		// ── P3 中途加入：只标记真实 Bomb 登录 ──
+		// token 签发/下发 + HandleMidRoundJoin 移到 ServerAuthenticateSession：
+		// ① 重连者必须先过 authenticate 检测（命中待重连表 → 恢复），不能 PostLogin 直接当新玩家 setup；
+		// ② PostLogin 若下发新 token 会覆盖客户端文件 → 重连者 BeginPlay 可能读到新 token → 出示失败（竞态）。
+		if (ABlasterPlayerController* BPC = Cast<ABlasterPlayerController>(NewPlayer))
 		{
-			const FString Token = SessionMgr->IssueToken(NewPlayer);
-			if (ABlasterPlayerController* BPC = Cast<ABlasterPlayerController>(NewPlayer))
-			{
-				BPC->ClientReceiveSessionToken(Token);
-			}
+			BPC->bIsMidJoinCandidate = true;
 		}
-		HandleMidRoundJoin(NewPlayer);
 	}
 	// else：比赛未开始，AssignTeamsOnce 时统一分配
 }
@@ -677,7 +687,50 @@ void ABombDefusalGameMode::PostLogin(APlayerController* NewPlayer)
 void ABombDefusalGameMode::Logout(AController* Exiting)
 {
 	Super::Logout(Exiting);
-	HandleMidRoundLeave(Exiting);
+
+	// P3 断线留场：仅对局进行中注册（Lobby/开局前直接走原有清理）
+	const bool bMatchInProgress = bTeamsAssigned && MatchState != MatchState::LeavingMap;
+	if (!bMatchInProgress)
+	{
+		HandleMidRoundLeave(Exiting);
+		return;
+	}
+
+	ABlasterPlayerState* PS = Exiting->GetPlayerState<ABlasterPlayerState>();
+	if (!PS || PS->GetSessionToken().IsEmpty())
+	{
+		HandleMidRoundLeave(Exiting);
+		return;
+	}
+
+	// P3 主流方案：注册待重连表（PS 保留 → 续吃经济/统计）。
+	// ⚠ 角色已被引擎销毁（断线清理），不保留 Pawn（原"留场"方案废弃）。
+	// PS 的存活由 CleanupPlayerState 重写保留（见 ABlasterPlayerController::CleanupPlayerState）。
+	FPendingSession Pending;
+	Pending.PlayerState  = PS;
+	Pending.TeamID       = PS->TeamID;
+	Pending.LogicalTeam  = PS->LogicalTeam;
+	Pending.Money        = PS->Money;
+	Pending.bInMatch     = true;
+	if (UBlasterSessionManager* Mgr = UBlasterSessionManager::Get())
+	{
+		Mgr->RegisterPendingSession(PS->GetSessionToken(), MoveTemp(Pending));
+	}
+
+	// 角色被销毁 = 队伍少一人 → 存活断开则递减 AliveCount + 检查回合结束。
+	// 已死断开（bWasAliveAtDisconnect=false）→ 死亡时已递减，勿重复。
+	ABlasterPlayerController* BPC = Cast<ABlasterPlayerController>(Exiting);
+	if (BPC && BPC->bWasAliveAtDisconnect && BlasterGameState)
+	{
+		if (PS->TeamID == ETeamID::ETI_Attacker)
+			BlasterGameState->AttackerAliveCount--;
+		else if (PS->TeamID == ETeamID::ETI_Defender)
+			BlasterGameState->DefenderAliveCount--;
+		BlasterGameState->BroadcastAliveCount();
+		CheckRoundEnd();
+	}
+	UE_LOG(LogTemp, Log, TEXT("[Reconnect] 玩家 %s 断线（角色移除）| token=%s | 断开时存活=%d"),
+		*GetNameSafe(PS), *PS->GetSessionToken(), BPC ? BPC->bWasAliveAtDisconnect : 0);
 }
 
 void ABombDefusalGameMode::HandleMidRoundJoin(APlayerController* NewPlayer)
@@ -745,6 +798,54 @@ void ABombDefusalGameMode::HandleMidRoundLeave(AController* Exiting)
 }
 
 // ========================================================================
+// P3 断线重连：重连恢复 + 按队伍选点（无控制器）
+// ========================================================================
+
+// 重连恢复（服务器执行，ServerAuthenticateSession 命中待重连表时调用）：
+// 换绑 PS（续吃经济/战绩）→ 重发原 token（覆盖 PostLogin 竞态）→ 消费待重连条目
+// → Pawn 存活则 Possess 拿回控制；已死则进观战（团队锁定）等下轮重生。
+void ABombDefusalGameMode::RestoreReconnectedPlayer(
+	ABlasterPlayerController* NewPC, const FPendingSession& Pending, const FString& PresentedToken)
+{
+	ABlasterPlayerState* PendingPS = Pending.PlayerState.Get();
+	if (!PendingPS || !NewPC) return;
+
+	// ① 换绑 PS：销毁新 PS（含其 PlayerArray 注册），新 PC 绑定待重连 PS（续吃经济/统计）。
+	//    保留的 PS 的 Owner 是已销毁的旧 PC → 重设为新 PC。
+	if (APlayerState* FreshPS = NewPC->PlayerState)
+	{
+		if (AGameStateBase* GS = GetWorld()->GetGameState())
+		{
+			GS->RemovePlayerState(FreshPS);
+		}
+		FreshPS->Destroy();
+	}
+	NewPC->PlayerState = PendingPS;      // 复制属性，同步客户端
+	PendingPS->SetOwner(NewPC);
+	PendingPS->SetIsSpectator(false);    // 恢复非观战
+
+	// ② 重发原 token（覆盖 PostLogin 阶段可能的覆盖，保证客户端文件与恢复后 PS 一致）
+	NewPC->ClientReceiveSessionToken(PendingPS->GetSessionToken());
+
+	// ③ 消费待重连条目（避免下次再命中）
+	if (UBlasterSessionManager* Mgr = UBlasterSessionManager::Get())
+	{
+		Mgr->RemovePendingSession(PresentedToken);
+	}
+
+	// ④ 主流方案：场上无角色可拿回（角色被引擎销毁）→ 非战斗期立即重生 / 战斗期进观战等下轮
+	if (MatchState != MatchState::RoundInProgress)
+	{
+		RestartPlayer(NewPC);
+	}
+	else
+	{
+		NewPC->EnterDeathSpectator(nullptr);
+	}
+	UE_LOG(LogTemp, Log, TEXT("[Reconnect] 玩家 %s 重连恢复（角色移除→重生/观战）"), *GetNameSafe(PendingPS));
+}
+
+// ========================================================================
 // 将 CountdownTime / 回合信息推送到 GameState（服务器执行）
 // 客户端通过 GetGameState<ABlasterGameState>() 读取，无需依赖 GameMode
 // ========================================================================
@@ -770,12 +871,33 @@ TArray<ABlasterPlayerState*> ABombDefusalGameMode::GetPlayersInTeam(ETeamID Team
 	for (APlayerState* PS : GameState->PlayerArray)
 	{
 		ABlasterPlayerState* BPS = Cast<ABlasterPlayerState>(PS);
-		if (BPS && BPS->TeamID == Team)
+		// P3 主流方案：断线玩家（待重连表）无角色、不算队内活跃人数。
+		// 收敛到这一处 → AliveCount 重校准 / 炸弹分配 / 阵营平衡 自动正确（方案 A）。
+		if (BPS && BPS->TeamID == Team && !IsInPendingSessions(BPS))
 		{
 			Result.Add(BPS);
 		}
 	}
 	return Result;
+}
+
+// ── P3 主流方案：断线玩家判定 ──
+// 该 PS 是否在待重连表（bInMatch=true 的条目）。断线玩家角色被引擎销毁、重连前无角色：
+// 经济发放（GetPlayersInLogicalTeam）/ 存活计数（GetPlayersInTeam）/ 半场金钱重置 统一排除。
+bool ABombDefusalGameMode::IsInPendingSessions(const ABlasterPlayerState* PS) const
+{
+	if (!PS) return false;
+	if (UBlasterSessionManager* Mgr = UBlasterSessionManager::Get())
+	{
+		for (const auto& Pair : Mgr->GetPendingSessions())
+		{
+			if (Pair.Value.bInMatch && Pair.Value.PlayerState.Get() == PS)
+			{
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 TArray<ABlasterPlayerState*> ABombDefusalGameMode::GetActivePlayers() const
@@ -827,8 +949,10 @@ TArray<ABlasterPlayerState*> ABombDefusalGameMode::GetPlayersInLogicalTeam(ELogi
 	for (APlayerState* PS : GameState->PlayerArray)
 	{
 		ABlasterPlayerState* BPS = Cast<ABlasterPlayerState>(PS);
-		if (BPS && BPS->LogicalTeam == LT && !BPS->IsSpectator())
+		if (BPS && BPS->LogicalTeam == LT && !BPS->IsSpectator() && !IsInPendingSessions(BPS))
 		{
+			// P3 主流方案（经济冻结）：断线玩家（待重连表）不参与回合经济发放。
+			// 重连后从待重连表移除 → 恢复领取。
 			Result.Add(BPS);
 		}
 	}
@@ -893,6 +1017,7 @@ void ABombDefusalGameMode::ExecuteHalftimeSwap()
 	BlasterGameState->bIsSecondHalf = true;
 
 	// ②+④ 翻转 ETeamID + 经济重置
+	// P3 主流方案（经济冻结）：断线玩家（待重连表）跳过金钱重置（冻结不被半场冲掉），但队伍照常翻转。
 	for (APlayerState* PS : GameState->PlayerArray)
 	{
 		ABlasterPlayerState* BPS = Cast<ABlasterPlayerState>(PS);
@@ -903,8 +1028,12 @@ void ABombDefusalGameMode::ExecuteHalftimeSwap()
 		else if (BPS->TeamID == ETeamID::ETI_Defender)
 			BPS->SetTeamID(ETeamID::ETI_Attacker);
 
-		BPS->Money = Config->StartingMoney;
-		BPS->OnMoneyChanged.Broadcast(BPS->Money, 0);
+		// 断线玩家（待重连表）跳过金钱重置（冻结不被半场冲掉），但队伍照常翻转。
+		if (!IsInPendingSessions(BPS))
+		{
+			BPS->Money = Config->StartingMoney;
+			BPS->OnMoneyChanged.Broadcast(BPS->Money, 0);
+		}
 	}
 
 	// ③ 旧字段交换 —— Phase 5 删除！新字段是 LogicalTeam 维度不需要交换

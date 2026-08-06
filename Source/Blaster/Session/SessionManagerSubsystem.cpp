@@ -3,7 +3,6 @@
 #include "GameFramework/PlayerController.h"   // GetPlayerState 模板所在（AController）
 #include "GameFramework/PlayerState.h"
 #include "Blaster/PlayerState/BlasterPlayerState.h"
-#include "Blaster/Character/BlasterCharacter.h"   // GetNameSafe 日志需完整类型（否则无法转 UObjectBaseUtility*）
 #include "Engine/Engine.h"                    // GEngine（Get() 用）
 #include "HAL/FileManager.h"                  // IFileManager::MakeDirectory
 #include "HAL/IConsoleManager.h"              // FAutoConsoleCommand
@@ -25,10 +24,9 @@ void UBlasterSessionManager::Initialize(FSubsystemCollectionBase& Collection)
 			for (const TPair<FString, FPendingSession>& Pair : PendingSessions)
 			{
 				UE_LOG(LogTemp, Log,
-					TEXT("[Session]   token=%s | PS=%s | Pawn=%s | Team=%d | LT=%d | Money=%d | bInMatch=%d"),
+					TEXT("[Session]   token=%s | PS=%s | Team=%d | LT=%d | Money=%d | bInMatch=%d"),
 					*Pair.Key,
 					*GetNameSafe(Pair.Value.PlayerState.Get()),   // TObjectPtr 需 .Get() 显式取裸指针，否则 GetNameSafe 模板推导歧义
-					*GetNameSafe(Pair.Value.Pawn.Get()),
 					(int32)Pair.Value.TeamID,
 					(int32)Pair.Value.LogicalTeam,
 					Pair.Value.Money,
@@ -75,6 +73,25 @@ FPendingSession* UBlasterSessionManager::FindPendingSession(const FString& Token
 	// 查待重连表（服务器执行）：ServerAuthenticateSession 用。
 	// P0 表恒为空 → 永远返回 nullptr（新玩家分支）；P3 Logout 注册后才可能命中。
 	return PendingSessions.Find(Token);
+}
+
+void UBlasterSessionManager::RegisterPendingSession(const FString& Token, FPendingSession&& Session)
+{
+	// 注册断线留场（服务器执行）：Logout 时把 PS/Pawn/身份数据存进表。
+	// TObjectPtr 强引用防止断线玩家失去 Controller 后被 GC（P6 风险 3）。
+	PendingSessions.Add(Token, MoveTemp(Session));
+}
+
+void UBlasterSessionManager::RemovePendingSession(const FString& Token)
+{
+	// 重连消费 / 清理：命中恢复或对局结束（P4）时移除，避免脏数据。
+	PendingSessions.Remove(Token);
+}
+
+void UBlasterSessionManager::ClearPendingSessions()
+{
+	// P4：ReturnToLobby 对局结束清理全部待重连条目。
+	PendingSessions.Reset();
 }
 
 bool UBlasterSessionManager::SaveLocalToken(const FString& Token)

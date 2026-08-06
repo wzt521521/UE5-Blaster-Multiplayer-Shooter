@@ -40,6 +40,16 @@ public:
 	                    ABlasterPlayerController* VictimController,
 	                    ABlasterPlayerController* AttackerController);
 
+	// ── P3 断线重连（重连恢复 / 中途加入入口，由 ServerAuthenticateSession 调用）──
+
+	// 重连恢复：token 命中待重连表 → 换绑 PS + Possess 场上角色或进观战
+	void RestoreReconnectedPlayer(class ABlasterPlayerController* NewPC,
+	                              const struct FPendingSession& Pending,
+	                              const FString& PresentedToken);
+
+	// 中途加入 setup（P3 从 PostLogin 移到此 —— 重连者必须先过 authenticate 检测，不能 PostLogin 直接 setup）
+	void HandleMidRoundJoin(APlayerController* NewPlayer);
+
 	UFUNCTION(BlueprintPure)
 	float GetCountdownTime() const { return CountdownTime; }
 	UFUNCTION(BlueprintPure)
@@ -188,14 +198,16 @@ private:
 	void ConcludeMatch(ELogicalTeam Winner);
 	void ReturnToLobby();
 
-	// 中途加入/退出
-	void HandleMidRoundJoin(APlayerController* NewPlayer);
+	// 中途退出
 	void HandleMidRoundLeave(AController* Exiting);
 
 	// 辅助
 	void CleanupBodiesAndRespawn();     // 销毁死尸 + 重生所有玩家 + 重置 AliveCount
 	TArray<ABlasterPlayerState*> GetPlayersInTeam(ETeamID Team) const;
 	TArray<ABlasterPlayerState*> GetActivePlayers() const;
+
+	// P3 主流方案：该 PS 是否在待重连表（断线玩家无角色，经济/存活/半场统计统一排除）
+	bool IsInPendingSessions(const ABlasterPlayerState* PS) const;
 
 	// 将 CountdownTime / 回合信息 推送到 GameState，客户端通过 GameState 读取
 	void SyncToGameState();

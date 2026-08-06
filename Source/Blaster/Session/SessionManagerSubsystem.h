@@ -8,7 +8,6 @@
 
 class APlayerController;
 class ABlasterPlayerState;
-class ABlasterCharacter;
 class FSubsystemCollectionBase;
 
 /**
@@ -41,15 +40,11 @@ struct FPendingSession
 	UPROPERTY()
 	TObjectPtr<ABlasterPlayerState> PlayerState;
 
-	// 留场角色（未 Possess、可被杀）—— P3 无控重生/无控死亡用；空表示该玩家场上已死
-	UPROPERTY()
-	TObjectPtr<ABlasterCharacter> Pawn;
-
 	// 断线瞬间阵营快照（重连恢复时据此 Possess 角色 / 决定出生点）
 	ETeamID TeamID = ETeamID::ETI_None;
 	ELogicalTeam LogicalTeam = ELogicalTeam::ELT_None;
 	int32 Money = 0;
-	bool bInMatch = false;   // true=对局中断开，false=大厅断开
+	bool bInMatch = false;   // true=对局中断开（大厅断开不再注册，主流方案）
 };
 
 UCLASS()
@@ -68,6 +63,14 @@ public:
 	// ── 待重连表查询 ──
 	// ServerAuthenticateSession 用：按 token 查断线留场条目，命中返回指针、未命中返回 nullptr。
 	FPendingSession* FindPendingSession(const FString& Token);
+
+	// P3：Logout 注册断线留场（强引用防 GC）。Token 为 PS->SessionToken（key）。
+	void RegisterPendingSession(const FString& Token, FPendingSession&& Session);
+	// P3：重连消费 / P4：ReturnToLobby 清空
+	void RemovePendingSession(const FString& Token);
+	void ClearPendingSessions();
+	// P3：遍历待重连表并修改（游戏线程内部访问，非 const）
+	TMap<FString, FPendingSession>& GetPendingSessions() { return PendingSessions; }
 
 	// ── 客户端本地 token 存取（重连出示用）──
 	// 客户端收到 ClientReceiveSessionToken 后落盘；重连时读取并随 ServerAuthenticateSession 出示。
