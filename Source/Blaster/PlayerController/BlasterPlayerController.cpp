@@ -101,6 +101,23 @@ void ABlasterPlayerController::Tick(float DeltaTime)
 	CheckTimeSync(DeltaTime);
 	PollInit();
 
+	// ── 运行时 tick 率日志（仅客户端本机 PC）：每 5s 打一次实际帧率 ──
+	// 用途：多客户端测试时确认失焦窗口的游戏逻辑 tick 是否满速。
+	// GPU 饥饿可能只压渲染、也可能拖慢 tick（引擎等渲染）；日志标 [FPS]，客户端日志 grep 即见。
+	if (IsLocalController())
+	{
+		++TickRateLogFrameCount;
+		TickRateLogElapsed += DeltaTime;
+		if (TickRateLogElapsed >= 5.f)
+		{
+			const float FPS = TickRateLogFrameCount / TickRateLogElapsed;
+			UE_LOG(LogTemp, Warning, TEXT("[FPS] tick_rate=%.1f (frames=%d / %.1fs)"),
+				FPS, TickRateLogFrameCount, TickRateLogElapsed);
+			TickRateLogFrameCount = 0;
+			TickRateLogElapsed = 0.f;
+		}
+	}
+
 	// 每帧更新客户端 ping 显示，PlayerState::GetPingInMilliseconds 引擎内置复制
 	if (GetPlayerState<APlayerState>())
 	{
@@ -335,6 +352,12 @@ void ABlasterPlayerController::SetHUDMatchCountdown(float CountdownTime)
 void ABlasterPlayerController::SetHUDAnnouncementCountdown(float CountdownTime)
 {
 	BlasterHud = BlasterHud == nullptr ? Cast<ABlasterHud>(GetHUD()) : BlasterHud;
+	// 公告面板现在"创建但不初始化"（见 InitializeHUD 注释）：写入倒计时前必须确保它已加入
+	// viewport 完成初始化（BindWidget 解析 + NativeConstruct 绑定 GameState），否则 WarmupTime 为空
+	if (BlasterHud)
+	{
+		BlasterHud->EnsureAnnouncement();
+	}
 	// 兜底：如果 Announcement 还未创建（ClientJoinMidgame 时 HUD 可能未就绪），在这里补创建
 	bool bHUDValid = BlasterHud &&
 		BlasterHud->Announcement &&

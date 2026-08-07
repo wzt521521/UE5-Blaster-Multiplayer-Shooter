@@ -252,4 +252,9 @@ private:
 	// 闪光弹配置已迁移到 BlasterHud
 
 	FString GetInfoText(const TArray<class ABlasterPlayerState*>& Players);
+
+	// ── 运行时 tick 率日志（多客户端失焦节流诊断）──
+	// Tick 里每 5s 打一次实际帧率，确认失焦窗口的游戏逻辑 tick 是否满速
+	int32 TickRateLogFrameCount = 0;
+	float TickRateLogElapsed = 0.f;
 };

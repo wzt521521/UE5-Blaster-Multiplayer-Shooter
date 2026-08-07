@@ -596,24 +596,36 @@ void UCombatComponent::ServerFire_Implementation(const FVector_NetQuantize& Trac
 	if (!ValidateServerFire(FireDelay, ClientShotTime, ClientMuzzle, Targets)) return;
 
 	// ── SSR 延迟补偿命中判定（先于 MulticastFire，避免二次伤害）──
-	AHitScanWeapon* HSWeapon = Cast<AHitScanWeapon>(EquippedWeapon);
-	ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>();
+	AHitScanWeapon* HSWeapon = Cast<AHitScanWeapon>(EquippedWeapon); // 只有 hitscan 系武器走 SSR（投射物有物理飞行时间，不走回退）
+	ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>(); // 从 GameState 拿 SSR 管理器（帧历史/回退的持有者）
+	// 进入 SSR 的四个条件（缺一不可）：
+	// ① HSWeapon：武器是 hitscan 家族（Cast 失败 = 投射物 → 跳过 SSR，走旧路径）
+	// ② GS：GameState 存在（服务器才有权威 GameState）
+	// ③ GetSSRRewindManager()：SSR 管理器已初始化（初始化失败/未启用 → 走旧路径）
+	// ④ !ClientMuzzle.IsZero()：客户端上报了枪口位置（没上报 → 无法对齐射线起点 → 不走 SSR）
 	if (HSWeapon && GS && GS->GetSSRRewindManager() && !ClientMuzzle.IsZero())
 	{
+		// 诊断日志：记录进入 SSR 的完整输入（射击者/两端位置/客户端时间戳），排查两端偏差用
 		UE_LOG(LogTemp, Verbose, TEXT("[SSR] ENTER ServerFire | Shooter=%s | Muzzle=(%.0f,%.0f,%.0f) | HitTarget=(%.0f,%.0f,%.0f) | ClientShotTime=%.3f"),
 			*GetNameSafe(Character), ClientMuzzle.X, ClientMuzzle.Y, ClientMuzzle.Z,
 			TraceHitTarget.X, TraceHitTarget.Y, TraceHitTarget.Z, ClientShotTime);
 
+		// 核心：回退历史帧 + 纯数学命中判定
+		// 内部流程：OneWayDelay = 服务器当前时间 - 客户端预估的开枪时刻
+		//           → Clamp 到 [0, 0.25s] → 找到"客户端开枪那一刻"的历史帧
+		//           → 用该帧里所有玩家的胶囊体/骨骼快照做射线相交（不碰物理引擎）
 		FSSR_TraceResult Result = GS->GetSSRRewindManager()->ProcessHitScanShot(
 			Character, HSWeapon, ClientMuzzle, TraceHitTarget, ClientShotTime);
 
-		if (Result.bHit)
+		if (Result.bHit) // 回退帧命中 → SSR 直接结算伤害（这才是"延迟补偿"的成果）
 		{
-			GS->GetSSRRewindManager()->ApplySSRDamage(Character, EquippedWeapon, Result);
-			HSWeapon->bSSRHandledShot = true; // 阻止 MulticastFire→LocalFire→Fire() 的二次伤害
+			GS->GetSSRRewindManager()->ApplySSRDamage(Character, EquippedWeapon, Result); // 按命中骨骼名算爆头/平伤，ApplyDamage
+			HSWeapon->bSSRHandledShot = true; // 置锁：下面的 MulticastFire→服务器兜底路径看到此标记就跳过，防止同一发结算两次
 		}
 		else
 		{
+			// 回退帧没命中 → 什么都不做，落到 MulticastFire 的旧路径
+			//（旧路径用"当前帧"射线在服务器再打一次——保证即使回退没中，也有一次判定兜底）
 			UE_LOG(LogTemp, Verbose, TEXT("[SSR] EXIT ServerFire | Result: MISS — falling back to original Fire() path"));
 		}
 	}

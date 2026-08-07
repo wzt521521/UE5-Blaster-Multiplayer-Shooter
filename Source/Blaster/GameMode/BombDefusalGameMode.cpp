@@ -237,6 +237,10 @@ void ABombDefusalGameMode::StartRoundPrepare()
 {
 	RoundNumber++;
 
+	// 新回合开始：清除上一回合胜者，避免中途加入/重连的客户端在公告上
+	// 看到上一回合的结果（LastRoundWinner 只在 EndRound 写入，准备期应为 None）
+	LastRoundWinner = ETeamID::ETI_None;
+
 	// [NEW] Step 7: 回合开始前清理上回合残留
 	ClearAllBuffsOnAllPlayers();    // 清除所有存活玩家的 Buff
 	CleanupDroppedWeapons();        // 销毁地面遗留武器

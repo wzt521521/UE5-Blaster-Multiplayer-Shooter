@@ -96,12 +96,14 @@ void ABlasterHud::InitializeHUD()
 		CharacterOverlay = CreateWidget<UCharacteroverlay>(PlayerController, CharacterOverlayClass);
 	}
 
-	// 公告面板（回合提示/倒计时/结果）—— 预加入 Viewport，默认隐藏
+	// 公告面板（回合提示/倒计时/结果）—— 只创建、不 AddToViewport：
+	// 延迟到显示时由 EnsureAnnouncement 加入 viewport 并初始化（NativeConstruct → 绑定 GameState）。
+	// 关键：必须在"对局世界"里初始化——若在大厅就 AddToViewport，会绑到大厅的 GameState，
+	// 无缝切图后 GameState 重建、绑定失效，公告永不更新（模仿 RoundOverlay 的创建时机）。
 	if (AnnouncementClass && !Announcement)
 	{
 		Announcement = CreateWidget<UAnnouncement>(PlayerController, AnnouncementClass);
-		Announcement->AddToViewport();
-		Announcement->SetVisibility(ESlateVisibility::Hidden);
+		Announcement->SetVisibility(ESlateVisibility::Hidden); // 默认隐藏，防止加入 viewport 时闪现
 	}
 
 	// 购买菜单

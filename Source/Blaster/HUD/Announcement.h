@@ -38,4 +38,10 @@ private:
 	void TryBindAndRefresh();
 	bool bDelegatesBound = false;
 	FTimerHandle RetryTimerHandle;
+
+	// 阵营信息轮询：本地 PlayerState 的 TeamID 复制可能晚于最后一次
+	// OnRoundInfoChanged（中途加入/重连时），轮询直到就绪才写入 InfoText。
+	// 有界重试（上限在 .cpp 的 MaxTeamInfoRetries），超时后等下一回合再试
+	void TryRefreshTeamInfo();
+	int32 TeamInfoRetryCount = 0;
 };

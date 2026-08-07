@@ -85,34 +85,64 @@ void UAnnouncement::RefreshRoundInfo(int32 RoundNumber, int32 TeamAWins, int32 T
 	}
 	if (InfoText)
 	{
-		// 从本地 PlayerState 获取阵营信息（已由服务器复制到客户端）
-		ABlasterPlayerState* PS = GetOwningPlayer()->GetPlayerState<ABlasterPlayerState>();
+		// 阵营信息可能晚于最后一次 OnRoundInfoChanged 才就绪（中途加入/重连），
+		// 交给 TryRefreshTeamInfo 轮询直到 TeamID 就绪（解决"你是攻击者"永不显示）
+		TryRefreshTeamInfo();
+	}
+}
 
-		// 客户端补救：PC 上的 PlayerState 指针可能尚未复制完成，
-		// 此时从 GameState::PlayerArray 中查找归属关系匹配的条目
-		if (!PS)
+// ------------------------------------------------------------
+// 阵营信息轮询：本地 PlayerState 的 TeamID 复制可能晚于最后一次
+// OnRoundInfoChanged（中途加入/重连），这里每帧重试直到就绪才写入 InfoText。
+// 有界重试（约 1.5s @60fps）：中途加入/重连的 TeamID 分配远快于此，超时是极端兜底；
+// 超时后放弃，等下一回合的 OnRoundInfoChanged 再触发刷新
+// ------------------------------------------------------------
+void UAnnouncement::TryRefreshTeamInfo()
+{
+	if (!InfoText) return;
+
+	// 轮询会重复执行：先取一次 OwningPC 并守卫空指针（Widget 销毁中/非玩家 HUD 直接退出，
+	// 避免重复解引用崩溃——原内联代码只跑一次，这里暴露面变大）
+	APlayerController* OwningPC = GetOwningPlayer();
+	if (!OwningPC) return;
+
+	// 从本地 PlayerState 获取阵营信息（已由服务器复制到客户端）
+	ABlasterPlayerState* PS = OwningPC->GetPlayerState<ABlasterPlayerState>();
+
+	// 客户端补救：PC 上的 PlayerState 指针可能尚未复制完成，
+	// 此时从 GameState::PlayerArray 中查找归属关系匹配的条目
+	if (!PS)
+	{
+		if (ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>())
 		{
-			if (ABlasterGameState* GS = GetWorld()->GetGameState<ABlasterGameState>())
+			for (APlayerState* ArrayPS : GS->PlayerArray)
 			{
-				for (APlayerState* ArrayPS : GS->PlayerArray)
+				if (ArrayPS->GetOwningController() == OwningPC)
 				{
-					if (ArrayPS->GetOwningController() == GetOwningPlayer())
-					{
-						PS = Cast<ABlasterPlayerState>(ArrayPS);
-						break;
-					}
+					PS = Cast<ABlasterPlayerState>(ArrayPS);
+					break;
 				}
 			}
 		}
+	}
 
-		// TeamID 为 ETI_None 说明阵营尚未分配或数据尚未同步，
-		// 此时不更新 InfoText，等委托推送真实值
-		if (PS && PS->TeamID != ETeamID::ETI_None)
-		{
-			const FString TeamStr = (PS->TeamID == ETeamID::ETI_Attacker)
-				? TEXT("攻击者") : TEXT("保卫者");
-			InfoText->SetText(FText::FromString(FString::Printf(TEXT("你是%s"), *TeamStr)));
-		}
+	// 阵营就绪 → 写入 InfoText 并停止轮询（成功即重置计数）
+	if (PS && PS->TeamID != ETeamID::ETI_None)
+	{
+		const FString TeamStr = (PS->TeamID == ETeamID::ETI_Attacker)
+			? TEXT("攻击者") : TEXT("保卫者");
+		InfoText->SetText(FText::FromString(FString::Printf(TEXT("你是%s"), *TeamStr)));
+		TeamInfoRetryCount = 0;
+		return;
+	}
+
+	// 阵营未就绪 → 下一帧重试（有界，防无限轮询；Widget 销毁时
+	// CreateUObject 的弱引用保护使定时器自动失效，不会野指针）
+	constexpr int32 MaxTeamInfoRetries = 90; // ~1.5s @60fps
+	if (TeamInfoRetryCount++ < MaxTeamInfoRetries && GetWorld())
+	{
+		GetWorld()->GetTimerManager().SetTimerForNextTick(
+			FTimerDelegate::CreateUObject(this, &UAnnouncement::TryRefreshTeamInfo));
 	}
 }
 
