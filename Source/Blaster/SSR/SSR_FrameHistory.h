@@ -18,7 +18,7 @@ class ABlasterCharacter;
 extern TAutoConsoleVariable<int32> CVarSSREnabled;
 extern TAutoConsoleVariable<float> CVarSSRMaxHistorySeconds;
 extern TAutoConsoleVariable<float> CVarSSRMaxPingCompensation;
-extern TAutoConsoleVariable<int32> CVarSSRValidateWithCurrent;
+extern TAutoConsoleVariable<int32> CVarSSRValidateWithCurrent; // [已废弃-死代码] 见 .cpp 同注释，从未被读取
 extern TAutoConsoleVariable<int32> CVarSSRDrawDebug;
 
 UCLASS()

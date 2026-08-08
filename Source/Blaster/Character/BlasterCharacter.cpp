@@ -892,7 +892,7 @@ void ABlasterCharacter::CaptureHitboxState(FSSR_PlayerFrameEntry& OutEntry)
 	OutEntry.Character = this;
 
 	const UCapsuleComponent* Capsule = GetCapsuleComponent();
-	if (Capsule)
+	if (Capsule)//记录胶囊体的世界位置、旋转、半高和半径
 	{
 		OutEntry.CapsuleLocation   = Capsule->GetComponentLocation();
 		OutEntry.CapsuleRotation   = Capsule->GetComponentQuat();
@@ -900,38 +900,53 @@ void ABlasterCharacter::CaptureHitboxState(FSSR_PlayerFrameEntry& OutEntry)
 		OutEntry.CapsuleRadius     = Capsule->GetScaledCapsuleRadius();
 	}
 
+
+	//准备进行骨骼的录制
 	OutEntry.BoneSnapshots.Reset();
 	USkeletalMeshComponent* SkMesh = GetMesh();
 	if (!SkMesh) return;
 
 	const FTransform MeshWorldTM = SkMesh->GetComponentTransform();
 
-	// 保存 Mesh Component 世界 Transform（恢复时直接移动 Component 来带动骨骼物理体）
+	// [已废弃] 物理回退遗留：纯数学判定不消费这两字段（读取方 ApplyHitboxState 是死代码），
+	// 保留写入仅作演进痕迹 / 将来如需物理恢复的备用。见 SSRTypes.h 同注释。
 	OutEntry.MeshWorldLocation = MeshWorldTM.GetLocation();
 	OutEntry.MeshWorldRotation = MeshWorldTM.GetRotation();
 
+	// ── 骨骼录制：遍历关键骨骼名单，把每根骨骼的"名字 + 世界坐标"录进快照 ──
+	// RelevantBoneNames = BuildRelevantBoneList 建的 14 根名单（head/spine/四肢…）
 	for (const FName& BoneName : RelevantBoneNames)
 	{
+		// 骨骼名 → 骨骼索引：GetBoneIndex 用名字查角色骨架里的实际索引（名字不能直接当索引用）
 		const int32 BoneIndex = SkMesh->GetBoneIndex(BoneName);
+		// 防御：角色骨架可能没有这根骨骼（不同角色模型骨骼命名不同），找不到就跳过不录
 		if (BoneIndex == INDEX_NONE) continue;
 
-		// Component Space → World Space
+		// ── 组件空间 → 世界空间 ──
+		// BoneCS：骨骼相对"网格体原点"的坐标（本地/组件空间，动画驱动的是这一层）
+		// BoneWS = BoneCS × MeshWorldTM：乘上网格体的世界变换 → 骨骼的"世界坐标"
+		//   （判定射线是世界空间，球心必须是世界坐标才能直接比——这就是"本地→世界"的实现）
 		const FTransform BoneCS = SkMesh->GetBoneTransform(BoneIndex);
 		const FTransform BoneWS = BoneCS * MeshWorldTM;
 
+		// 填一条骨骼快照：
 		FSSR_BoneSnapshot BoneSnap;
-		BoneSnap.BoneName = BoneName;
-		BoneSnap.Location = BoneWS.GetLocation();
-		BoneSnap.Rotation = BoneWS.GetRotation();
+		BoneSnap.BoneName = BoneName;                 // 名字 → 判定时判爆头（BoneName=="head"）
+		BoneSnap.Location = BoneWS.GetLocation();     // 世界坐标 → 判定时当球心（RaySphereIntersect）
+		BoneSnap.Rotation = BoneWS.GetRotation();     // 朝向（备用，球体判定旋转不变，不读）
 
-		OutEntry.BoneSnapshots.Add(BoneSnap);
+		OutEntry.BoneSnapshots.Add(BoneSnap);         // 塞进数组 → 这条就是 FSSR_PlayerFrameEntry 里 14 根之一
 	}
 }
 
 // ════════════════════════════════════════════════════════════════
-// SSR：将碰撞体恢复/回退到指定状态
-// RewindManager 在回退和恢复两个阶段调用
-// 注意：用 TeleportPhysics 避免触发网络复制和物理模拟
+// ⚠ [已废弃-死代码] SSR 物理回退方案：将碰撞体恢复/回退到指定状态
+// 全项目无调用点（RewindManager 实际走纯数学判定，不挪动物理体）。
+// 早期设计：回退时把 Mesh/胶囊体挪回历史姿势、带动骨骼物理体；
+// 后改为纯数学（MathTraceSingleRay 对快照做解析相交）→ 零物理回滚、确定性。
+// 保留仅作演进痕迹 / 回退备用方案，勿调用；删除时需同步清理
+// MeshWorldLocation/Rotation 字段与其写入点。
+// （原注释：用 TeleportPhysics 避免触发网络复制和物理模拟）
 // ════════════════════════════════════════════════════════════════
 
 void ABlasterCharacter::ApplyHitboxState(const FSSR_PlayerFrameEntry& Entry)

@@ -1,4 +1,4 @@
-// Blaster SSR：帧历史录制器实现
+// SSR：帧历史录制器实现
 
 #include "SSR_FrameHistory.h"
 #include "Blaster/GameState/BlasterGameState.h"
@@ -7,41 +7,48 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
+#include "Engine/NetDriver.h" // UNetDriver::NetServerMaxTickRate（服务器 Tick 频率权威来源）
 
 // ════════════════════════════════════════════════════════════════
 // Console Variables：运行时通过控制台 ~ 调节 SSR 行为
 // ════════════════════════════════════════════════════════════════
 
+//ECVF_Default 是 CVar 的行为标志，含义就是"无特殊标志"——最普通的默认行为。
 TAutoConsoleVariable<int32> CVarSSREnabled(
-	TEXT("ssr.Enabled"),
+	TEXT("ssr.Enabled"),//总开关：0=关 SSR，1=开
 	1,
 	TEXT("Server-Side Rewind 延迟补偿\n0=禁用  1=启用"),
 	ECVF_Default
 );
 
 TAutoConsoleVariable<float> CVarSSRMaxHistorySeconds(
-	TEXT("ssr.MaxHistorySeconds"),
+	TEXT("ssr.MaxHistorySeconds"),//录多久历史：0.5s≈30帧@60Hz，覆盖 ~250ms ping
 	0.5f,
 	TEXT("历史快照保留时长（秒）\n0.5s ≈ 30帧 @60Hz，覆盖 ~250ms Ping"),
 	ECVF_Default
 );
 
 TAutoConsoleVariable<float> CVarSSRMaxPingCompensation(
-	TEXT("ssr.MaxPingCompensation"),
+	TEXT("ssr.MaxPingCompensation"),//回退窗口上限：单向延迟超 0.25s 不回退，走当前帧
 	0.25f,
 	TEXT("最大 Ping 补偿上限（秒）\n超过此值的单向延迟不回退，直接走当前帧射线"),
 	ECVF_Default
 );
 
+// ⚠ [已废弃-死代码] 双保险开关：全项目从未被读取（grep 仅定义 + extern 声明）。
+// 设计意图：回退帧命中 OR 当前帧命中都算命中（0=只用回退帧，1=回退或当前任一命中即算）。
+// 实际双保险由"SSR miss → 落到 MulticastFire → 旧路径当前帧射线"无条件实现
+//   （bSSRHandledShot 门控防二次结算），无需此开关。
+// 保留仅作演进痕迹，勿用于新逻辑；如需删除，同步清理头文件 extern 声明。
 TAutoConsoleVariable<int32> CVarSSRValidateWithCurrent(
-	TEXT("ssr.ValidateWithCurrent"),
+	TEXT("ssr.ValidateWithCurrent"),//双保险：回退帧或当前帧命中都算
 	1,
 	TEXT("双保险：回退帧命中或当前帧命中都算命中\n0=只用回退帧  1=回退或当前任一命中即算"),
 	ECVF_Default
 );
 
 TAutoConsoleVariable<int32> CVarSSRDrawDebug(
-	TEXT("ssr.DrawDebug"),
+	TEXT("ssr.DrawDebug"),//调试可视化：0=关，1=画回退射线，2=加画胶囊体
 	0,
 	TEXT("SSR Debug 可视化\n0=关闭  1=绘制回退射线  2=绘制射线+胶囊体线框"),
 	ECVF_Default
@@ -91,13 +98,18 @@ void USSR_FrameHistory::Initialize(ABlasterGameState* InGameState)
 {
 	GameState = InGameState;
 
-	// 从 NetServerMaxTickRate 获取服务器 Tick 频率
+	// 从 NetServerMaxTickRate 获取服务器 Tick 频率（权威来源：UNetDriver 的 config 属性）
+	// 项目 DefaultEngine.ini 的 [/Script/OnlineSubsystemUtils.IpNetDriver] 设为 60
 	// NetServerMaxTickRate=60 → 每秒 60 帧 → 0.5s 历史 = 30 帧
-	float TickRate = 60.f; // 默认值
+	float TickRate = 60.f; // 兜底默认值（无 NetDriver 时）
 	if (UWorld* World = GetWorld())
 	{
-		// UNetDriver::NetServerMaxTickRate 可通过 GEngine->GetMaxTickRate() 近似获取
-		TickRate = FMath::Max(20.f, World->GetNetDriver() ? 60.f : 60.f);
+		// 真读权威值：修复原"桩"（旧实现 GetNetDriver()?60:60 两个分支都恒 60），
+		// 现在按服务器实际发包频率计算环形缓冲容量，改 NetServerMaxTickRate 不会算错。
+		if (const UNetDriver* NetDriver = World->GetNetDriver())
+		{
+			TickRate = FMath::Max(20.f, (float)NetDriver->NetServerMaxTickRate);
+		}
 	}
 
 	const float MaxHistorySeconds = CVarSSRMaxHistorySeconds.GetValueOnGameThread();
@@ -184,7 +196,7 @@ void USSR_FrameHistory::CapturePlayerEntry(ABlasterCharacter* Player, FSSR_Playe
 
 	const FTransform MeshWorldTM = Mesh->GetComponentTransform();
 
-	// 保存 Mesh Component 世界 Transform（恢复时直接移动 Component 来带动骨骼物理体）
+	// [已废弃] 物理回退遗留：纯数学判定不消费这两字段，保留写入仅作记录。见 SSRTypes.h 同注释。
 	OutEntry.MeshWorldLocation = MeshWorldTM.GetLocation();
 	OutEntry.MeshWorldRotation = MeshWorldTM.GetRotation();
 

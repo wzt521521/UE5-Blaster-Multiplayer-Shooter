@@ -14,13 +14,17 @@ struct FSSR_BoneSnapshot
 	GENERATED_BODY()
 
 	UPROPERTY()
-	FName BoneName;
+	FName BoneName;//哪个骨骼
 
 	UPROPERTY()
-	FVector Location = FVector::ZeroVector;
+	FVector Location = FVector::ZeroVector;//骨骼世界坐标
 
+	// ⚠ [备用-当前未读] 骨骼朝向：只写不读
+	// 当前命中判定用"球体"（RaySphereIntersect）——球旋转不变，只需 Location 作球心；
+	// Rotation 仅由 CaptureHitboxState / CapturePlayerEntry 写入，判定侧从未读取。
+	// 保留作备用：将来若升级为"带朝向的骨骼判定"（如骨骼胶囊体、斜置头骨），Rotation 立刻可用。
 	UPROPERTY()
-	FQuat Rotation = FQuat::Identity;
+	FQuat Rotation = FQuat::Identity;//骨骼朝向（备用）
 };
 
 // ────────────────────────────────────────────────────────────
@@ -37,26 +41,30 @@ struct FSSR_PlayerFrameEntry
 
 	// 胶囊体数据
 	UPROPERTY()
-	FVector CapsuleLocation = FVector::ZeroVector;
+	FVector CapsuleLocation = FVector::ZeroVector;//胶囊体世界坐标
 
 	UPROPERTY()
-	FQuat CapsuleRotation = FQuat::Identity;
+	FQuat CapsuleRotation = FQuat::Identity;//胶囊体朝向
 
 	UPROPERTY()
-	float CapsuleHalfHeight = 0.f;
+	float CapsuleHalfHeight = 0.f;//胶囊体半高
 
 	UPROPERTY()
-	float CapsuleRadius = 0.f;
+	float CapsuleRadius = 0.f;//胶囊体半径
 
-	// SkeletalMeshComponent 世界 Transform
-	// 恢复时直接移动 Mesh Component 来带动所有骨骼物理体（SetBodyTransform 对 kinematic articulation link 不生效）
+	// ⚠ [已废弃] Mesh 世界 Transform——物理回退方案的遗留字段，只写不读
+	// 最初设计：回退判定前把 Mesh 挪回历史位置、带动骨骼物理体（物理回退）；
+	// SetBodyTransform 对 kinematic articulation link 不生效，只能整体移动 Component。
+	// 现方案改为纯数学对快照判定（MathTraceSingleRay 只读 Capsule + BoneSnapshots），
+	// 这两字段仅由 CaptureHitboxState / CapturePlayerEntry 写入，
+	// 唯一读取方 ApplyHitboxState 全项目无调用（死代码）→ 实际从未被消费。
+	// 保留仅作演进痕迹参考，勿用于新逻辑；如需删除，同步清掉写入点与 ApplyHitboxState。
 	UPROPERTY()
-	FVector MeshWorldLocation = FVector::ZeroVector;
-
+	FVector MeshWorldLocation = FVector::ZeroVector;//Mesh 世界坐标（遗留）
 	UPROPERTY()
-	FQuat MeshWorldRotation = FQuat::Identity;
+	FQuat MeshWorldRotation = FQuat::Identity;//Mesh 世界朝向（遗留）
 
-	// 关键骨骼快照（head, spine, pelvis, limbs 等 ~14 个骨骼）
+	// 14个球体
 	UPROPERTY()
 	TArray<FSSR_BoneSnapshot> BoneSnapshots;
 };
@@ -80,11 +88,11 @@ struct FSSR_FrameSnapshot
 
 	// 该帧所有存活角色的碰撞体快照
 	UPROPERTY()
-	TArray<FSSR_PlayerFrameEntry> PlayerEntries;
+	TArray<FSSR_PlayerFrameEntry> PlayerEntries;//角色的胶囊体（内部记录球体）
 };
 
 // ────────────────────────────────────────────────────────────
-// SSR 回退射线判定结果，返回给调用者用于 ApplyDamage
+// SSR 回退射线判定结果，返回给调用者用于 ApplyDamage。即SSR判决书
 // ────────────────────────────────────────────────────────────
 USTRUCT()
 struct FSSR_TraceResult
